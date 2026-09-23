@@ -5,13 +5,19 @@ import { birthSortKey } from "@/lib/utils/date";
 /**
  * Generation assignment.
  *
- * Two rules make the result readable:
+ * Three rules make the result readable:
  *  1. A couple shares one generation (spouses are never drawn on different
  *     rows), so spouses are merged into a single level *group* first.
  *  2. A child is one generation below *every* parent, so a group's level is
- *     `max(parentLevel) + 1`. Marriage across generations (or a record that
- *     would imply a cycle) is handled by iterating to a fixed point instead of
- *     throwing - real family data is messy and the app must not fight it.
+ *     `max(parentLevel) + 1`.
+ *  3. Brothers and sisters share one generation. That has to be stated
+ *     explicitly, because the sibling bond is often recorded precisely when the
+ *     parents are unknown ("add sibling" on the canvas), and without it the two
+ *     would land on unrelated rows with an edge cutting across the tree.
+ *
+ * Marriage across generations (or a record that would imply a cycle) is handled
+ * by iterating to a fixed point instead of throwing - real family data is
+ * messy and the app must not fight it.
  */
 
 export interface GenerationAssignment {
@@ -105,10 +111,61 @@ export function assignGenerations(
     parentGroups.get(childGroup)?.add(parentGroup);
   }
 
+  // group -> sibling groups that must share its level. Only asserted sibling
+  // bonds appear here: siblings derived from shared parents are already level
+  // with each other through rule 2.
+  const siblingTies = new Map<string, Set<string>>();
+  const tie = (a: string, b: string) => {
+    if (a === b) return;
+    if (!siblingTies.has(a)) siblingTies.set(a, new Set());
+    if (!siblingTies.has(b)) siblingTies.set(b, new Set());
+    siblingTies.get(a)?.add(b);
+    siblingTies.get(b)?.add(a);
+  };
+  for (const rel of graph.relationships) {
+    if (rel.type !== "sibling") continue;
+    const groupA = groupOf.get(rel.fromPersonId);
+    const groupB = groupOf.get(rel.toPersonId);
+    if (!groupA || !groupB) continue;
+    tie(groupA, groupB);
+  }
+
+  /** Raises every group in one sibling chain to the highest level in the chain. */
+  const equaliseSiblings = () => {
+    let moved = false;
+    const visited = new Set<string>();
+    for (const start of siblingTies.keys()) {
+      if (visited.has(start)) continue;
+      const chain: string[] = [];
+      const stack = [start];
+      visited.add(start);
+      while (stack.length) {
+        const group = stack.pop() as string;
+        chain.push(group);
+        for (const next of siblingTies.get(group) ?? []) {
+          if (visited.has(next)) continue;
+          visited.add(next);
+          stack.push(next);
+        }
+      }
+      let highest = 0;
+      for (const group of chain) highest = Math.max(highest, levels.get(group) ?? 0);
+      for (const group of chain) {
+        if ((levels.get(group) ?? 0) < highest) {
+          levels.set(group, highest);
+          moved = true;
+        }
+      }
+    }
+    return moved;
+  };
+
   const levels = new Map<string, number>();
   for (const group of membersOf.keys()) levels.set(group, 0);
 
-  // Fixed-point relaxation: level(child) >= level(parent) + 1.
+  // Fixed-point relaxation: level(child) >= level(parent) + 1, then siblings
+  // pulled level with each other. Each pass can require the other, so they
+  // iterate together until nothing moves.
   let changed = true;
   let iteration = 0;
   while (changed && iteration < maxIterations) {
@@ -122,6 +179,7 @@ export function assignGenerations(
         changed = true;
       }
     }
+    if (equaliseSiblings()) changed = true;
   }
 
   // Degenerate cycle: fall back to BFS depth so we still render something sane.

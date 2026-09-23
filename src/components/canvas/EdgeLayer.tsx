@@ -2,8 +2,8 @@
 
 import { useMemo } from "react";
 
+import { buildRenderEdges, type RenderEdge } from "@/lib/canvas/edges";
 import { boundsOfRects, padRect, type NodeRects } from "@/lib/canvas/geometry";
-import { edgeGeometry } from "@/lib/canvas/routing";
 import type { Id, Relationship } from "@/lib/domain/types";
 import { cn } from "@/lib/utils/cn";
 
@@ -26,7 +26,13 @@ export interface EdgeLayerProps {
    * only thing the eye can follow.
    */
   pathRelationshipIds?: Set<Id>;
-  onSelectRelationship?(relationship: Relationship): void;
+  /**
+   * The family of the person being studied. Bonds outside it step back without
+   * vanishing - enough to answer "who is this person connected to?" at a
+   * glance, quiet enough that the rest of the tree is still readable.
+   */
+  focusPersonIds?: Set<Id>;
+  onSelectRelationship?(relationshipId: Id): void;
 }
 
 const STROKE: Record<Relationship["type"], string> = {
@@ -36,10 +42,19 @@ const STROKE: Record<Relationship["type"], string> = {
   other: "var(--link-other)",
 };
 
+interface StyledEdge extends RenderEdge {
+  dimmed: boolean;
+  receded: boolean;
+  emphasised: boolean;
+  onPath: boolean;
+}
+
 /**
  * Edges are the visible consequence of relationship records. The layer is drawn
  * inside the transformed world layer, so it pans and zooms with the nodes for
- * free, and each bond type gets its own restrained visual language.
+ * free, and each bond type gets its own restrained visual language: a thin
+ * solid line for descent, a short tie with a loom mark for a marriage, a
+ * shallow arc for siblings, a dashed curve for named bonds.
  */
 export function EdgeLayer({
   relationships,
@@ -48,50 +63,40 @@ export function EdgeLayer({
   emphasised,
   dimUnrelated,
   pathRelationshipIds,
+  focusPersonIds,
   onSelectRelationship,
 }: EdgeLayerProps) {
   const frame = useMemo(() => {
     const bounds = boundsOfRects(rects.values());
     if (!bounds) return null;
     // Edges always live between nodes, so a modest pad is enough headroom for
-    // the custom-bond curve; keeping the SVG tight keeps the DOM light.
+    // the routing curves; keeping the SVG tight keeps the DOM light.
     return padRect(bounds, 400);
   }, [rects]);
 
-  const edges = useMemo(() => {
+  const edges = useMemo<StyledEdge[]>(() => {
     if (!frame) return [];
-    return relationships
-      .map((relationship) => {
-        const from = rects.get(relationship.fromPersonId);
-        const to = rects.get(relationship.toPersonId);
-        if (!from || !to) return null;
+    const pathActive = Boolean(pathRelationshipIds?.size);
+    const focusActive = Boolean(focusPersonIds?.size);
 
-        const geometry = edgeGeometry(relationship.type, from, to);
-        const touchesEmphasis =
-          emphasised.has(relationship.fromPersonId) || emphasised.has(relationship.toPersonId);
-        const onPath = pathRelationshipIds?.has(relationship.id) ?? false;
-        const pathActive = Boolean(pathRelationshipIds?.size);
-        const dimmed = (dimUnrelated && !touchesEmphasis) || (pathActive && !onPath);
+    return buildRenderEdges({ relationships, rects, impliedRelationshipIds }).map((edge) => {
+      const touchesEmphasis = edge.personIds.some((personId) => emphasised.has(personId));
+      const onPath = edge.relationshipIds.some((id) => pathRelationshipIds?.has(id));
+      const dimmed = (dimUnrelated && !touchesEmphasis) || (pathActive && !onPath);
+      const receded =
+        !dimmed &&
+        focusActive &&
+        !edge.personIds.some((personId) => focusPersonIds?.has(personId));
 
-        const label =
-          relationship.type === "other"
-            ? relationship.label
-            : relationship.type === "spouse" && relationship.status && relationship.status !== "married"
-              ? relationship.status
-              : undefined;
-
-        return {
-          id: relationship.id,
-          relationship,
-          geometry,
-          dimmed,
-          emphasised: touchesEmphasis || onPath,
-          onPath,
-          label,
-        };
-      })
-      .filter((edge): edge is NonNullable<typeof edge> => Boolean(edge));
-  }, [dimUnrelated, emphasised, frame, pathRelationshipIds, rects, relationships]);
+      return {
+        ...edge,
+        dimmed,
+        receded,
+        emphasised: touchesEmphasis || onPath,
+        onPath,
+      };
+    });
+  }, [dimUnrelated, emphasised, focusPersonIds, frame, impliedRelationshipIds, pathRelationshipIds, rects, relationships]);
 
   if (!frame) return null;
 
@@ -99,29 +104,34 @@ export function EdgeLayer({
     <svg
       className="pointer-events-none absolute overflow-visible"
       style={{ left: frame.x, top: frame.y, width: frame.width, height: frame.height }}
-      aria-hidden={false}
       role="presentation"
     >
       <g transform={`translate(${-frame.x}, ${-frame.y})`}>
         {edges.map((edge) => {
-          const { relationship, geometry, dimmed, emphasised, label, onPath } = edge;
-          const implied = impliedRelationshipIds.has(relationship.id);
+          const { geometry, dimmed, receded, emphasised, onPath, label, type, implied } = edge;
+          const stroke = onPath ? "var(--accent)" : STROKE[type];
 
           return (
-            <g key={edge.id} className={cn(dimmed && (onPath ? "opacity-70" : "opacity-20"))}>
+            <g
+              key={edge.id}
+              className={cn(
+                dimmed && (onPath ? "opacity-70" : "opacity-20"),
+                receded && "opacity-45",
+              )}
+            >
               <path
                 d={geometry.d}
                 fill="none"
-                stroke={onPath ? "var(--accent)" : STROKE[relationship.type]}
-                strokeWidth={onPath ? 3.2 : emphasised ? 2.4 : relationship.type === "spouse" ? 2 : 1.5}
+                stroke={stroke}
+                strokeWidth={onPath ? 3.2 : emphasised ? 2.4 : type === "spouse" ? 1.8 : 1.4}
                 strokeLinecap="round"
                 strokeDasharray={
-                  onPath ? undefined : relationship.type === "other" ? "6 5" : implied ? "4 4" : undefined
+                  onPath ? undefined : type === "other" ? "6 5" : implied ? "4 4" : undefined
                 }
                 opacity={onPath ? 0.95 : emphasised ? 1 : 0.72}
               />
 
-              {relationship.type === "spouse" && (
+              {type === "spouse" && (
                 <rect
                   x={geometry.mid.x - 3}
                   y={geometry.mid.y - 3}
@@ -129,17 +139,18 @@ export function EdgeLayer({
                   height={6}
                   transform={`rotate(45 ${geometry.mid.x} ${geometry.mid.y})`}
                   fill="var(--link-spouse)"
-                  className="pointer-events-auto"
                 />
               )}
 
-              {relationship.type === "parent" && (
+              {type === "parent" && (
+                // A single quiet pip where the line turns: it shows that the bond
+                // runs downwards, without turning the canvas into arrows.
                 <circle
                   cx={geometry.mid.x}
                   cy={geometry.mid.y}
-                  r={2.6}
-                  fill="var(--link-parent)"
-                  opacity={emphasised ? 0.9 : 0.6}
+                  r={2.4}
+                  fill={onPath ? "var(--accent)" : "var(--link-parent)"}
+                  opacity={emphasised ? 0.9 : 0.55}
                 />
               )}
 
@@ -174,7 +185,9 @@ export function EdgeLayer({
                 className="pointer-events-auto cursor-pointer"
                 onClick={(event) => {
                   event.stopPropagation();
-                  onSelectRelationship?.(relationship);
+                  // A merged trunk stands for several rows; the caller decides
+                  // how to describe that before anything is removed.
+                  onSelectRelationship?.(edge.relationshipIds[0]);
                 }}
               />
             </g>

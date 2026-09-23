@@ -40,17 +40,53 @@ export const canvasRepo = {
 
   async saveViewport(projectId: string, viewport: Viewport): Promise<void> {
     const db = getDb();
-    const existing = await this.get(projectId);
-    await db.canvasStates.put({ ...existing, viewport, updatedAt: nowIso() });
+    // Same reasoning as setPositions: the viewport is saved on a debounce while
+    // the user can be dragging a node, so the row must be read and written as
+    // one unit or the newer position would be rolled back.
+    await db.transaction("rw", db.canvasStates, async () => {
+      const existing = await this.get(projectId);
+      await db.canvasStates.put({ ...existing, viewport, updatedAt: nowIso() });
+    });
   },
 
   async setPositions(projectId: string, positions: Record<string, Point>): Promise<void> {
     const db = getDb();
-    const existing = await this.get(projectId);
-    await db.canvasStates.put({
-      ...existing,
-      nodePositions: { ...existing.nodePositions, ...positions },
-      updatedAt: nowIso(),
+    // Read-modify-write inside one transaction so that a position written by an
+    // explicit gesture can never be lost to a concurrent write.
+    await db.transaction("rw", db.canvasStates, async () => {
+      const existing = await this.get(projectId);
+      await db.canvasStates.put({
+        ...existing,
+        nodePositions: { ...existing.nodePositions, ...positions },
+        updatedAt: nowIso(),
+      });
+    });
+  },
+
+  /**
+   * Writes a position only for people who do not have one yet.
+   *
+   * This is what the layout fallback uses: a person appears in the live query a
+   * beat before the canvas row records where the user put them, and the layout
+   * must never overwrite that intent. Checking inside the transaction makes the
+   * outcome independent of which write happens to land first.
+   */
+  async fillMissingPositions(
+    projectId: string,
+    positions: Record<string, Point>,
+  ): Promise<void> {
+    const db = getDb();
+    await db.transaction("rw", db.canvasStates, async () => {
+      const existing = await this.get(projectId);
+      const next = { ...existing.nodePositions };
+      let changed = false;
+      for (const [personId, point] of Object.entries(positions)) {
+        if (next[personId]) continue;
+        next[personId] = point;
+        changed = true;
+      }
+      if (!changed) return;
+      await db.canvasStates.put({ ...existing, nodePositions: next, updatedAt: nowIso() });
     });
   },
 
@@ -60,17 +96,22 @@ export const canvasRepo = {
 
   async togglePinned(projectId: string, personId: string): Promise<boolean> {
     const db = getDb();
-    const existing = await this.get(projectId);
-    const pinned = existing.pinnedPersonIds.includes(personId);
-    const next = {
-      ...existing,
-      pinnedPersonIds: pinned
-        ? existing.pinnedPersonIds.filter((id) => id !== personId)
-        : [...existing.pinnedPersonIds, personId],
-      updatedAt: nowIso(),
-    };
-    await db.canvasStates.put(next);
-    return !pinned;
+    // Returned through a box because Dexie transactions resolve with the
+    // callback's value only on the transaction promise.
+    let nowPinned = false;
+    await db.transaction("rw", db.canvasStates, async () => {
+      const existing = await this.get(projectId);
+      const pinned = existing.pinnedPersonIds.includes(personId);
+      nowPinned = !pinned;
+      await db.canvasStates.put({
+        ...existing,
+        pinnedPersonIds: pinned
+          ? existing.pinnedPersonIds.filter((id) => id !== personId)
+          : [...existing.pinnedPersonIds, personId],
+        updatedAt: nowIso(),
+      });
+    });
+    return nowPinned;
   },
 
   /** Drops positions for people who no longer exist (cheap self-healing). */
@@ -102,14 +143,7 @@ export async function ensurePosition(
   personId: string,
   position: Point,
 ): Promise<void> {
-  const db = getDb();
-  const canvas = await canvasRepo.get(projectId);
-  if (canvas.nodePositions[personId]) return;
-  await db.canvasStates.put({
-    ...canvas,
-    nodePositions: { ...canvas.nodePositions, [personId]: position },
-    updatedAt: nowIso(),
-  });
+  await canvasRepo.fillMissingPositions(projectId, { [personId]: position });
 }
 
 export function newCanvasId(): string {

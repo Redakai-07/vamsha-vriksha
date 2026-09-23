@@ -82,8 +82,10 @@ export function PersonDetailsPanel({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="max-w-[29rem] p-0">
-        <header className="border-b border-border px-5 pb-4 pt-5">
+      {/* Width is the sheet's job: it is a side panel on a desktop and a bottom
+          sheet on a phone, and both are decided there. */}
+      <SheetContent className="p-0">
+        <header className="border-b border-border px-5 pb-4 pt-2 sm:pt-5">
           <div className="flex items-start gap-4">
             <PersonAvatar person={person} size="lg" />
 
@@ -173,7 +175,7 @@ export function PersonDetailsPanel({
           </ScrollArea>
         </Tabs>
 
-        <footer className="flex items-center gap-2 border-t border-border px-5 py-3">
+        <footer className="vv-safe-bottom flex items-center gap-2 border-t border-border px-4 py-3 sm:px-5">
           <Button type="button" variant="outline" size="sm" className="flex-1" onClick={onEdit}>
             <Pencil /> Edit
           </Button>
@@ -181,7 +183,9 @@ export function PersonDetailsPanel({
             <Crosshair /> Locate
           </Button>
           <Button type="button" size="sm" className="flex-1" onClick={onAddRelationship}>
-            Add relationship
+            {/* A phone footer has no room for the long label. */}
+            <span className="sm:hidden">Add relative</span>
+            <span className="max-sm:hidden">Add relationship</span>
           </Button>
         </footer>
       </SheetContent>

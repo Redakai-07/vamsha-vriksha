@@ -39,7 +39,8 @@ const PLACEMENT: Record<RelativeIntent, string> = {
  * node - that is what makes a big canvas unreadable) and they are placed in the
  * direction the relationship will be drawn: parent above, child below, spouse
  * to the side. Each control keeps a constant on-screen size regardless of zoom,
- * because it counter-scales by `--vv-inv-zoom`.
+ * because it counter-scales by `--vv-inv-zoom`, and grows to a comfortable
+ * finger target on touch devices, which have no hover to preview with.
  */
 export function NodeQuickActions({ person, onIntent }: NodeQuickActionsProps) {
   const intents: RelativeIntent[] = ["parent", "child", "sibling", "other", "spouse"];
@@ -62,13 +63,13 @@ export function NodeQuickActions({ person, onIntent }: NodeQuickActionsProps) {
                 title={meta.control}
                 onPointerDown={(event) => event.stopPropagation()}
                 className={cn(
-                  "pointer-events-auto absolute flex size-7 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-[0_2px_6px_rgba(15,10,30,0.14)] transition-colors",
+                  "pointer-events-auto absolute flex size-7 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-[0_2px_6px_rgba(15,10,30,0.14)] transition-colors pointer-coarse:size-9",
                   "hover:border-transparent hover:text-foreground",
                   PLACEMENT[intent],
                 )}
                 style={{ ["--bond" as string]: `var(${meta.colorVar})` }}
               >
-                <Icon className="size-3.5" />
+                <Icon className="size-3.5 pointer-coarse:size-4" />
               </button>
             </PopoverTrigger>
             <PopoverContent

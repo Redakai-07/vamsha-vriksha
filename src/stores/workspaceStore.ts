@@ -161,9 +161,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
     set((state) => ({
       selectedPersonId: personId,
       detailsOpen: personId ? (options?.openDetails ?? state.detailsOpen) : false,
-      relationshipDraft: state.relationshipDraft && state.relationshipDraft.fromPersonId === personId
-        ? state.relationshipDraft
-        : null,
+      /*
+       * Clicking a *different* person while a relationship is being drafted is
+       * how the link gets completed (the click means "this one"), so the draft
+       * has to survive the selection that the same click performs. It is
+       * cleared by Escape, by the draft banner's cancel button, and by clicking
+       * empty canvas - all of which mean "never mind".
+       */
+      relationshipDraft: personId === null ? null : state.relationshipDraft,
     })),
 
   hover: (personId) => set({ hoveredPersonId: personId }),

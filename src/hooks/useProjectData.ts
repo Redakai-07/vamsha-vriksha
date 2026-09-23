@@ -87,7 +87,9 @@ export function useProjectData(projectId: Id | null): ProjectData {
   }, [biodataList]);
 
   // Self-healing: if any node had to be positioned by the layout fallback,
-  // write those positions back so the next load is fully deterministic.
+  // write those positions back so the next load is fully deterministic. Only
+  // people who still have no stored position are filled in - a person created a
+  // moment ago is already placed by the caller, and that placement wins.
   const healedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!projectId || !resolved.derived.length) return;
@@ -99,7 +101,8 @@ export function useProjectData(projectId: Id | null): ProjectData {
       const point = resolved.positions.get(id);
       if (point) payload[id] = point;
     }
-    void canvasRepo.setPositions(projectId, payload);
+    if (!Object.keys(payload).length) return;
+    void canvasRepo.fillMissingPositions(projectId, payload);
   }, [projectId, resolved]);
 
   return {

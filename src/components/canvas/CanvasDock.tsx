@@ -62,10 +62,13 @@ export function CanvasDock({
         <DockButton label="Tidy up the layout ( L )" onClick={onTidyUp}>
           <Layers />
         </DockButton>
+        {/* The minimap needs room a phone does not have, so this control retires
+            with it instead of appearing to do nothing. */}
         <DockButton
           label={minimapOpen ? "Hide minimap ( M )" : "Show minimap ( M )"}
           onClick={onToggleMinimap}
           active={minimapOpen}
+          hideOnPhone
         >
           <MapIcon />
         </DockButton>
@@ -78,11 +81,13 @@ function DockButton({
   label,
   onClick,
   active,
+  hideOnPhone,
   children,
 }: {
   label: string;
   onClick(): void;
   active?: boolean;
+  hideOnPhone?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -94,6 +99,7 @@ function DockButton({
           size="icon-sm"
           aria-label={label}
           onClick={onClick}
+          className={cn(hideOnPhone && "max-sm:hidden")}
         >
           {children}
         </Button>

@@ -180,6 +180,18 @@
     padding-inline: 0.75rem;
   }
 
+  /*
+   * The generation and couple plates are reading aids: they earn their place
+   * when the user is close enough to study a branch, and become clutter the
+   * moment the whole family is in view. Fading them by zoom keeps that
+   * automatic - no toggle, no re-render.
+   */
+  [data-lod="mid"] .vv-row-plate,
+  [data-lod="far"] .vv-row-plate,
+  [data-lod="far"] .vv-couple-plate {
+    opacity: 0.45;
+  }
+
   ::selection {
     background-color: color-mix(in oklab, var(--accent) 32%, transparent);
   }
@@ -230,6 +242,19 @@
   }
 }
 
+/* The panel arrives from the edge it lives on: up on a phone, in from the right
+ * on a desktop. Same component, two idioms. */
+@keyframes vv-sheet-in-bottom {
+  from {
+    transform: translateY(4%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
 /* Registered with @utility so they can carry variants, e.g.
  * `data-[state=open]:vv-dialog`. */
 @utility vv-fade {
@@ -244,6 +269,10 @@
   animation: vv-sheet-in-right 220ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+@utility vv-sheet-bottom {
+  animation: vv-sheet-in-bottom 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 @utility vv-rise {
   animation: vv-rise 200ms cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -252,9 +281,23 @@
   .vv-fade,
   .vv-dialog,
   .vv-sheet,
+  .vv-sheet-bottom,
   .vv-rise {
     animation: none;
   }
+}
+
+/*
+ * Canvas chrome sits above the browser's own furniture on a phone: the dock and
+ * the panels respect the home-indicator inset, and the sheet leaves room for
+ * the address bar when it is expanded.
+ */
+.vv-safe-bottom {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+
+.vv-safe-top {
+  padding-top: max(0px, env(safe-area-inset-top));
 }
 
 /* Paper-ish texture used sparingly behind the dashboard hero. */

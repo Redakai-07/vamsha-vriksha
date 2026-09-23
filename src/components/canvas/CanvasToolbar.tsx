@@ -7,6 +7,7 @@ import {
   Database,
   HelpingHand,
   Map as MapIcon,
+  MoreHorizontal,
   Plus,
   Settings,
   Share2,
@@ -57,6 +58,9 @@ export interface CanvasToolbarProps {
   onOpenSettings(): void;
   onOpenShortcuts(): void;
   onExport(): void;
+  /** Generation plates behind the rows. */
+  structureVisible: boolean;
+  onToggleStructure(): void;
 }
 
 /**
@@ -83,6 +87,8 @@ export function CanvasToolbar({
   onOpenSettings,
   onOpenShortcuts,
   onExport,
+  structureVisible,
+  onToggleStructure,
 }: CanvasToolbarProps) {
   const [online, setOnline] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -148,7 +154,7 @@ export function CanvasToolbar({
           <button
             type="button"
             onClick={() => setEditing(true)}
-            className="max-w-[38vw] truncate rounded-md px-1.5 py-1 font-display text-[14px] font-medium tracking-tight transition-colors hover:bg-secondary/60"
+            className="max-w-[30vw] truncate rounded-md px-1.5 py-1 font-display text-[14px] font-medium tracking-tight transition-colors hover:bg-secondary/60 sm:max-w-[38vw]"
             title="Rename this lineage"
           >
             {project?.name ?? "Loading…"}
@@ -189,7 +195,14 @@ export function CanvasToolbar({
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button size="icon-sm" variant="outline" aria-label="Arrange and view options">
+            {/* On a phone the dock covers fit and tidy-up, and the overflow menu
+                covers the view toggles, so this menu stands down. */}
+            <Button
+              size="icon-sm"
+              variant="outline"
+              aria-label="Arrange and view options"
+              className="max-sm:hidden"
+            >
               <Sparkles />
             </Button>
           </DropdownMenuTrigger>
@@ -218,6 +231,12 @@ export function CanvasToolbar({
               Show minimap
             </DropdownMenuCheckboxItem>
             <DropdownMenuCheckboxItem
+              checked={structureVisible}
+              onCheckedChange={onToggleStructure}
+            >
+              Show generation guides
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem
               checked={culturalTermsVisible}
               onCheckedChange={onToggleCulturalTerms}
             >
@@ -230,6 +249,12 @@ export function CanvasToolbar({
           </DropdownMenuContent>
         </DropdownMenu>
 
+        {/*
+         * The finder follows the eye, so it stays visible at every width. The
+         * rest of the actions are one menu on a phone: six icon buttons next to
+         * a project name would push the name off the screen, and a header that
+         * wraps is worse than a header that hides.
+         */}
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
@@ -247,37 +272,75 @@ export function CanvasToolbar({
           </TooltipContent>
         </Tooltip>
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              size="icon-sm"
-              variant="outline"
-              aria-label="Relationship guide"
-              onClick={onOpenGuide}
-            >
-              <BookOpen />
+        <div className="hidden items-center gap-1.5 sm:flex">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="icon-sm"
+                variant="outline"
+                aria-label="Relationship guide"
+                onClick={onOpenGuide}
+              >
+                <BookOpen />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Relationship guide: terms, meanings and paths (press ?)</TooltipContent>
+          </Tooltip>
+
+          <Button
+            size="icon-sm"
+            variant="outline"
+            aria-label="Keyboard shortcuts"
+            onClick={onOpenShortcuts}
+          >
+            <HelpingHand />
+          </Button>
+
+          <Button
+            size="icon-sm"
+            variant="outline"
+            aria-label="Data and preferences"
+            onClick={onOpenSettings}
+          >
+            <Settings />
+          </Button>
+        </div>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button size="icon-sm" variant="outline" aria-label="More options" className="sm:hidden">
+              <MoreHorizontal />
             </Button>
-          </TooltipTrigger>
-          <TooltipContent>Relationship guide: terms, meanings and paths (press ?)</TooltipContent>
-        </Tooltip>
-
-        <Button
-          size="icon-sm"
-          variant="outline"
-          aria-label="Keyboard shortcuts"
-          onClick={onOpenShortcuts}
-        >
-          <HelpingHand />
-        </Button>
-
-        <Button
-          size="icon-sm"
-          variant="outline"
-          aria-label="Data and preferences"
-          onClick={onOpenSettings}
-        >
-          <Settings />
-        </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuItem onSelect={onOpenGuide}>
+              <BookOpen /> Relationship guide
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={onOpenShortcuts}>
+              <HelpingHand /> Keyboard shortcuts
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={onOpenSettings}>
+              <Settings /> Data and preferences
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuCheckboxItem checked={structureVisible} onCheckedChange={onToggleStructure}>
+              Generation guides
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem
+              checked={culturalTermsVisible}
+              onCheckedChange={onToggleCulturalTerms}
+            >
+              Kinship terms
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem checked={minimapOpen} onCheckedChange={onToggleMinimap}>
+              Minimap
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={onExport}>
+              <Share2 /> Export this lineage
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </header>
     </TooltipProvider>
   );

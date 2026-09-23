@@ -270,15 +270,16 @@ function EmptyState({ onCreate }: { onCreate(): void }) {
       <span className="mx-auto flex size-12 items-center justify-center rounded-full border border-border bg-card">
         <Plus className="size-5 text-muted-foreground" />
       </span>
-      <h3 className="mt-4 font-display text-[17px] font-medium tracking-tight">
-        Begin with one person
+      <h3 className="mt-4 font-display text-[19px] font-medium tracking-tight">
+        Your family story starts here.
       </h3>
       <p className="mx-auto mt-2 max-w-md text-[13px] leading-relaxed text-muted-foreground">
-        A new lineage opens on an almost-empty canvas with a single &ldquo;+&rdquo; node. Add whoever
-        you remember first - a grandparent, a parent, yourself - and the graph grows from there.
+        A lineage opens on an almost-empty canvas with one quiet card. Add whoever you remember
+        first - a grandparent, a parent, yourself - and the tree grows from there. Only a name is
+        required.
       </p>
       <Button className="mt-5" onClick={onCreate}>
-        <Plus /> Create your first lineage
+        <Plus /> Start a new lineage
       </Button>
     </div>
   );

@@ -24,6 +24,11 @@ export interface PersonNodeProps {
   hovered: boolean;
   /** Dimmed because another person's lineage is spotlighted. */
   dimmed: boolean;
+  /**
+   * Stepped back because the person being studied has a different immediate
+   * family. Softer than `dimmed`: this is a hint, not a filter.
+   */
+  receded?: boolean;
   spotlighted: boolean;
   relationTarget: boolean;
   /**
@@ -60,6 +65,7 @@ export function PersonNode({
   selected,
   hovered,
   dimmed,
+  receded = false,
   spotlighted,
   relationTarget,
   pathRole = "none",
@@ -169,6 +175,7 @@ export function PersonNode({
         (pathRole === "source" || pathRole === "target") &&
           "border-accent ring-2 ring-accent/60 shadow-[0_8px_22px_-12px_rgba(15,10,30,0.5)]",
         dimmed && "opacity-35",
+        !dimmed && receded && "opacity-[0.62]",
         dragPosition ? "cursor-grabbing" : "cursor-grab",
       )}
       style={{

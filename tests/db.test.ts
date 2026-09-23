@@ -94,6 +94,50 @@ describe("people and biodata", () => {
     expect(biodata?.customFields).toHaveLength(0);
   });
 
+  it("never lets the layout fallback overwrite a placement the user made", async () => {
+    const project = await projectsRepo.create({ name: "Placement" });
+    const placed = await peopleRepo.create({ projectId: project.id, name: "Placed" });
+    const arriving = await peopleRepo.create({ projectId: project.id, name: "Arriving" });
+
+    // The explicit placement, e.g. "add this person beside their sibling".
+    await canvasRepo.setPosition(project.id, placed.id, { x: 260, y: -52 });
+
+    // The layout fallback sees both people before the canvas row caught up.
+    await canvasRepo.fillMissingPositions(project.id, {
+      [placed.id]: { x: 0, y: 0 },
+      [arriving.id]: { x: 13, y: 26 },
+    });
+
+    const canvas = await canvasRepo.get(project.id);
+    expect(canvas.nodePositions[placed.id]).toEqual({ x: 260, y: -52 });
+    expect(canvas.nodePositions[arriving.id]).toEqual({ x: 13, y: 26 });
+
+    // Filling again must not shuffle anyone who is already placed.
+    await canvasRepo.fillMissingPositions(project.id, {
+      [placed.id]: { x: 400, y: 400 },
+      [arriving.id]: { x: 400, y: 400 },
+    });
+    const settled = await canvasRepo.get(project.id);
+    expect(settled.nodePositions[placed.id]).toEqual({ x: 260, y: -52 });
+    expect(settled.nodePositions[arriving.id]).toEqual({ x: 13, y: 26 });
+  });
+
+  it("keeps a position and a viewport saved at the same time", async () => {
+    const project = await projectsRepo.create({ name: "Concurrent" });
+    const person = await peopleRepo.create({ projectId: project.id, name: "Kaveri" });
+
+    // These two writes happen together in the app: the viewport is debounced
+    // while a drag is still being persisted.
+    await Promise.all([
+      canvasRepo.setPosition(project.id, person.id, { x: 78, y: -13 }),
+      canvasRepo.saveViewport(project.id, { x: -420, y: 96, zoom: 0.85 }),
+    ]);
+
+    const canvas = await canvasRepo.get(project.id);
+    expect(canvas.nodePositions[person.id]).toEqual({ x: 78, y: -13 });
+    expect(canvas.viewport).toEqual({ x: -420, y: 96, zoom: 0.85 });
+  });
+
   it("removing a person removes their relationships, biodata and position", async () => {
     const project = await projectsRepo.create({ name: "Cleanup" });
     const a = await peopleRepo.create({ projectId: project.id, name: "A" });

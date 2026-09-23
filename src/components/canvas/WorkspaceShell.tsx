@@ -26,6 +26,7 @@ import { placeNear, type PlacementRelation } from "@/lib/canvas/placement";
 import { exportProjectToFile, backupFileName, collectProjectBundle } from "@/lib/db/backup";
 import { canvasRepo } from "@/lib/db/repositories/canvas";
 import { peopleRepo } from "@/lib/db/repositories/people";
+import { metaRepo } from "@/lib/db/repositories/preferences";
 import { projectsRepo } from "@/lib/db/repositories/projects";
 import { relationshipsRepo } from "@/lib/db/repositories/relationships";
 import { descendantIds, ancestorIds, type FamilyGraph } from "@/lib/domain/graph";
@@ -89,6 +90,11 @@ export function WorkspaceShell({ projectId, onBackToProjects }: WorkspaceShellPr
   const settingsOpen = useWorkspaceStore((state) => state.settingsOpen);
 
   const [surfaceReady, setSurfaceReady] = useState(false);
+  const [structureVisible, setStructureVisible] = useState(true);
+  // Contextual help: shown once, to someone who has just added their first
+  // person, and retired for good as soon as they act on it.
+  const [coachMarkVisible, setCoachMarkVisible] = useState(false);
+  const [coachMarkSeen, setCoachMarkSeen] = useState(false);
   const [personDialog, setPersonDialog] = useState<PersonDialogState>(null);
   const [relativeDialog, setRelativeDialog] = useState<RelativeDialogState | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Person | null>(null);
@@ -103,10 +109,47 @@ export function WorkspaceShell({ projectId, onBackToProjects }: WorkspaceShellPr
   const selectedPerson = people.find((person) => person.id === selectedPersonId) ?? null;
   const isEmptyProject = !loading && people.length === 0;
 
+  /** One dismissal writes to the meta table, so the hint never nags twice. */
+  const dismissCoachMark = useCallback(() => {
+    setCoachMarkVisible(false);
+    setCoachMarkSeen(true);
+    void metaRepo.set(`coachMark:${projectId}`, "1");
+  }, [projectId]);
+
   useEffect(() => {
     void hydratePreferences();
     useWorkspaceStore.getState().setProject(projectId);
   }, [hydratePreferences, projectId]);
+
+  /**
+   * The one piece of onboarding the canvas needs: it appears after the first
+   * person exists (when there is something to point at) and disappears for good
+   * the moment the user does the thing it describes - opening a profile or
+   * recording a relationship.
+   */
+  useEffect(() => {
+    if (loading || people.length === 0) return;
+    if (graph.relationships.length > 0 || detailsOpen) {
+      if (!coachMarkSeen && coachMarkVisible) dismissCoachMark();
+      return;
+    }
+    let alive = true;
+    void metaRepo.get(`coachMark:${projectId}`).then((value) => {
+      if (alive && value !== "1") setCoachMarkVisible(true);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [
+    coachMarkSeen,
+    coachMarkVisible,
+    detailsOpen,
+    dismissCoachMark,
+    graph.relationships.length,
+    loading,
+    people.length,
+    projectId,
+  ]);
 
   /**
    * Surface size, so fit/centre maths can use real pixels.
@@ -120,18 +163,22 @@ export function WorkspaceShell({ projectId, onBackToProjects }: WorkspaceShellPr
     if (loading) return;
     const element = surfaceRef.current;
     if (!element) return;
+    let previous: { width: number; height: number } | null = null;
     const update = () => {
       const { width, height } = element.getBoundingClientRect();
-      if (width > 0 && height > 0) {
-        useWorkspaceStore.getState().setSurface({ width, height });
-        setSurfaceReady(true);
-      }
+      if (width <= 0 || height <= 0) return;
+      // Hold the centre of the view steady across a resize: rotating a phone or
+      // losing the URL bar must not slide the family out of sight.
+      if (previous) camera.keepCentre(previous, { width, height });
+      previous = { width, height };
+      useWorkspaceStore.getState().setSurface({ width, height });
+      setSurfaceReady(true);
     };
     update();
     const observer = new ResizeObserver(update);
     observer.observe(element);
     return () => observer.disconnect();
-  }, [loading]);
+  }, [camera, loading]);
 
   // Initial camera: restore the saved viewport, or frame the family once it
   // loads for the first time in a fresh project.
@@ -356,11 +403,6 @@ export function WorkspaceShell({ projectId, onBackToProjects }: WorkspaceShellPr
    *  - "link someone already recorded" arms the canvas: the next person you
    *    click becomes the other end of the bond (Escape cancels).
    */
-  const draftTargetIds = useMemo(() => {
-    if (!draft) return new Set<Id>();
-    return new Set(people.filter((person) => person.id !== draft.fromPersonId).map((p) => p.id));
-  }, [draft, people]);
-
   const handleIntent = useCallback(
     (personId: Id, intent: RelativeIntent, mode: RelationshipDraftMode) => {
       const anchor = people.find((person) => person.id === personId);
@@ -560,6 +602,8 @@ export function WorkspaceShell({ projectId, onBackToProjects }: WorkspaceShellPr
           onOpenSettings={() => undefined}
           onOpenShortcuts={() => undefined}
           onExport={() => undefined}
+          structureVisible={false}
+          onToggleStructure={() => undefined}
         />
         <div className="flex flex-1 items-center justify-center gap-2 text-[13px] text-muted-foreground">
           <Loader2 className="size-4 animate-spin" /> Opening this lineage from this device…
@@ -593,6 +637,8 @@ export function WorkspaceShell({ projectId, onBackToProjects }: WorkspaceShellPr
         onOpenSettings={() => useWorkspaceStore.getState().setSettingsOpen(true)}
         onOpenShortcuts={() => useWorkspaceStore.getState().setShortcutsOpen(true)}
         onExport={() => void exportProject()}
+        structureVisible={structureVisible}
+        onToggleStructure={() => setStructureVisible((visible) => !visible)}
       />
 
       <FamilyCanvas
@@ -611,15 +657,27 @@ export function WorkspaceShell({ projectId, onBackToProjects }: WorkspaceShellPr
         draft={draft}
         showMinimap={minimapOpen && preferences.showMinimap}
         surfaceSize={surfaceSize}
-        draftTargetIds={draftTargetIds}
         impliedRelationshipIds={impliedRelationshipIds}
         finderPath={finderPath}
         finderPicking={finder.open}
         isEmptyProject={isEmptyProject}
+        showStructure={structureVisible}
+        coachMark={
+          coachMarkVisible
+            ? {
+                title: "This person is on the canvas",
+                body: "Hover the card for parent, spouse, child and sibling controls, or click it to open their profile. Drag anywhere to move them.",
+              }
+            : null
+        }
+        onDismissCoachMark={dismissCoachMark}
         onIntent={handleIntent}
         onSelectPerson={(personId) => {
           const state = useWorkspaceStore.getState();
           if (state.finder.open) state.pickFinderPerson(personId);
+          // Completing a draft is the click's job, not selection's: the click
+          // must not pull the eye away from the bond being recorded.
+          else if (state.relationshipDraft) return;
           else state.select(personId);
         }}
         onOpenDetails={handleOpenDetails}
@@ -693,7 +751,7 @@ export function WorkspaceShell({ projectId, onBackToProjects }: WorkspaceShellPr
         onOpenChange={(open) => !open && setPersonDialog(null)}
         mode={personDialog?.kind === "edit" ? "edit" : "create"}
         person={personDialog?.kind === "edit" ? personDialog.person : null}
-        title={isDefaultView(personDialog) ? "Add the first person" : undefined}
+        title={isDefaultView(personDialog, people.length) ? "Add the first person" : undefined}
         onSubmit={async (values) => {
           if (personDialog?.kind === "edit") {
             await peopleRepo.update(personDialog.person.id, {
@@ -793,8 +851,11 @@ export function WorkspaceShell({ projectId, onBackToProjects }: WorkspaceShellPr
       <ConfirmDialog
         open={pendingRelationshipDelete !== null}
         onOpenChange={(open) => !open && setPendingRelationshipDelete(null)}
-        title="Remove this relationship?"
-        description="Only the relationship record is deleted - both people stay in the lineage."
+        // Naming the two people matters when the clicked line stands for a
+        // couple (one trunk, two records): the dialog has to say which record
+        // is about to go.
+        title={pendingRelationshipDelete ? relationshipTitle(pendingRelationshipDelete, graph) : "Remove this relationship?"}
+        description="Only the relationship record is deleted - both people stay in the lineage, and any other record between them is untouched."
         confirmLabel="Remove relationship"
         onConfirm={async () => {
           if (pendingRelationshipDelete) await removeRelationship(pendingRelationshipDelete);
@@ -804,8 +865,34 @@ export function WorkspaceShell({ projectId, onBackToProjects }: WorkspaceShellPr
   );
 }
 
-function isDefaultView(state: PersonDialogState): boolean {
-  return state?.kind === "create";
+/**
+ * A person's name for a dialog, falling back to something human when the row is
+ * for someone who has since been removed.
+ */
+function nameIn(graph: FamilyGraph, personId: Id): string {
+  const person = graph.peopleById.get(personId);
+  return person ? person.displayName?.trim() || person.name : "this person";
+}
+
+/** "Remove Krishna as a parent of Aarav?" - precise, in the user's words. */
+function relationshipTitle(relationship: Relationship, graph: FamilyGraph): string {
+  const from = nameIn(graph, relationship.fromPersonId);
+  const to = nameIn(graph, relationship.toPersonId);
+  switch (relationship.type) {
+    case "parent":
+      return `Remove ${from} as a parent of ${to}?`;
+    case "spouse":
+      return `Remove the marriage between ${from} and ${to}?`;
+    case "sibling":
+      return `Remove the sibling link between ${from} and ${to}?`;
+    default:
+      return `Remove the ${relationship.label || "named"} link between ${from} and ${to}?`;
+  }
+}
+
+/** "Add the first person" only makes sense while the lineage is still empty. */
+function isDefaultView(state: PersonDialogState, peopleCount: number): boolean {
+  return state?.kind === "create" && peopleCount === 0;
 }
 
 /** Maps a human "add parent/child/..." intent onto the stored bond type. */

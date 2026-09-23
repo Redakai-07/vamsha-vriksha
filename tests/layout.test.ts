@@ -55,6 +55,44 @@ describe("generation assignment", () => {
     expect(levels.get(child.id)).toBe(1);
   });
 
+  it("keeps siblings on one row when their parents were never recorded", () => {
+    const father = makePerson({ name: "Father", gender: "male", dateOfBirth: "1955" });
+    const son = makePerson({ name: "Son", gender: "male", dateOfBirth: "1985" });
+    // The sibling bond is asserted because the parents are unknown - the case
+    // the "add sibling" control on the canvas exists for.
+    const brother = makePerson({ name: "Brother", gender: "male", dateOfBirth: "1988" });
+    const graph = makeGraph(
+      [father, son, brother],
+      [
+        makeRelationship("parent", father.id, son.id),
+        makeRelationship("sibling", son.id, brother.id),
+      ],
+    );
+    const { levels } = assignGenerations(graph);
+
+    expect(levels.get(son.id)).toBe(1);
+    expect(levels.get(brother.id)).toBe(1);
+  });
+
+  it("carries a sibling's children down a generation with them", () => {
+    const father = makePerson({ name: "Father", gender: "male" });
+    const son = makePerson({ name: "Son", gender: "male" });
+    const brother = makePerson({ name: "Brother", gender: "male" });
+    const niece = makePerson({ name: "Niece", gender: "female" });
+    const graph = makeGraph(
+      [father, son, brother, niece],
+      [
+        makeRelationship("parent", father.id, son.id),
+        makeRelationship("sibling", son.id, brother.id),
+        makeRelationship("parent", brother.id, niece.id),
+      ],
+    );
+    const { levels } = assignGenerations(graph);
+
+    expect(levels.get(brother.id)).toBe(1);
+    expect(levels.get(niece.id)).toBe(2);
+  });
+
   it("survives a cyclic record instead of hanging", () => {
     const a = makePerson({ name: "A", gender: "male" });
     const b = makePerson({ name: "B", gender: "male" });

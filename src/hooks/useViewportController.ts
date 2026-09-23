@@ -44,6 +44,13 @@ export interface ViewportController {
   fitToContent(options?: { animate?: boolean; padding?: number }): void;
   fitToPerson(personId: Id, options?: { animate?: boolean }): void;
   resetZoom(): void;
+  /**
+   * Keeps the same world point under the centre of the screen when the surface
+   * changes size (rotation, a collapsing URL bar, a resized window). Without
+   * this the canvas would keep its top-left corner and slowly push the family
+   * off the edge of a phone.
+   */
+  keepCentre(previous: { width: number; height: number }, next: { width: number; height: number }): void;
   /** World ids currently visible (used for culling). */
   visibleIds(rects: NodeRects, slack?: number): Id[];
 }
@@ -237,6 +244,24 @@ export function useViewportController({
     [centerOn],
   );
 
+  const keepCentre = useCallback(
+    (previous: { width: number; height: number }, next: { width: number; height: number }) => {
+      if (previous.width === next.width && previous.height === next.height) return;
+      if (previous.width <= 0 || previous.height <= 0) return;
+      const { viewport } = useWorkspaceStore.getState();
+      const centre = {
+        x: viewport.x + previous.width / (2 * viewport.zoom),
+        y: viewport.y + previous.height / (2 * viewport.zoom),
+      };
+      useWorkspaceStore.getState().setViewport({
+        zoom: viewport.zoom,
+        x: centre.x - next.width / (2 * viewport.zoom),
+        y: centre.y - next.height / (2 * viewport.zoom),
+      });
+    },
+    [],
+  );
+
   const fitToPerson = useCallback(
     (personId: Id, options?: { animate?: boolean }) => {
       const rect = rectsRef.current.get(personId);
@@ -268,6 +293,7 @@ export function useViewportController({
       fitToContent,
       fitToPerson,
       resetZoom: () => setZoom(1),
+      keepCentre,
       visibleIds: (nodeRects, slack) => {
         const size = getSize();
         const viewport = useWorkspaceStore.getState().viewport;
@@ -280,6 +306,6 @@ export function useViewportController({
         return visibleNodeIds(nodeRects, view, slack);
       },
     }),
-    [centerOn, centerOnPerson, fitToContent, fitToPerson, setZoom, zoomBy],
+    [centerOn, centerOnPerson, fitToContent, fitToPerson, keepCentre, setZoom, zoomBy],
   );
 }
