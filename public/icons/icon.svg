@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Vamsha-Vriksha">
+  <rect width="512" height="512" rx="112" fill="#2a2340" />
+  <g stroke="#f3ece0" stroke-width="14" stroke-linecap="round" opacity="0.65" fill="none">
+    <path d="M256 372v-70" />
+    <path d="M256 302 168 252M256 302l88-50" />
+    <path d="M256 232v-52" />
+  </g>
+  <circle cx="256" cy="404" r="30" fill="#c98a3c" />
+  <circle cx="256" cy="300" r="34" fill="#f3ece0" />
+  <circle cx="150" cy="246" r="30" fill="#f3ece0" />
+  <circle cx="362" cy="246" r="30" fill="#f3ece0" />
+  <circle cx="256" cy="160" r="42" fill="#c98a3c" />
+</svg>

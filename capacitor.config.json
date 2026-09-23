@@ -1,0 +1,28 @@
+{
+  "appId": "app.vamshavriksha.desktop",
+  "appName": "Vamsha-Vriksha",
+  "webDir": "out",
+  "bundledWebRuntime": false,
+  "android": {
+    "allowMixedContent": false,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": false
+  },
+  "ios": {
+    "contentInset": "always",
+    "limitsNavigationsToAppBoundDomains": true
+  },
+  "server": {
+    "androidScheme": "https",
+    "iosScheme": "capacitor"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "backgroundColor": "#fbf8f3",
+      "launchAutoHide": true
+    },
+    "Keyboard": {
+      "resize": "native"
+    }
+  }
+}

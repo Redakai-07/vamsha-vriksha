@@ -1,0 +1,289 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ------------------------------------------------------------------ *
+ * Vamsha-Vriksha design tokens
+ *
+ * A calm, cultural, premium palette: warm ivory paper, deep plum ink,
+ * saffron/terracotta as the "life" accent, muted teal for lateral ties.
+ * Values are oklch so colour mixing and opacity modifiers stay
+ * perceptually even. No gradients, no glass, no glow.
+ * ------------------------------------------------------------------ */
+:root {
+  --radius: 0.75rem;
+
+  --background: oklch(0.985 0.006 85);
+  --foreground: oklch(0.27 0.026 297);
+
+  --card: oklch(0.996 0.004 85);
+  --card-foreground: oklch(0.27 0.026 297);
+
+  --popover: oklch(0.998 0.003 85);
+  --popover-foreground: oklch(0.27 0.026 297);
+
+  --primary: oklch(0.42 0.088 288);
+  --primary-foreground: oklch(0.985 0.006 85);
+
+  --secondary: oklch(0.955 0.012 88);
+  --secondary-foreground: oklch(0.33 0.03 296);
+
+  --muted: oklch(0.955 0.01 88);
+  --muted-foreground: oklch(0.53 0.02 296);
+
+  --accent: oklch(0.72 0.132 62);
+  --accent-foreground: oklch(0.24 0.04 60);
+
+  --destructive: oklch(0.52 0.17 27);
+  --destructive-foreground: oklch(0.985 0.006 85);
+
+  --border: oklch(0.9 0.012 90);
+  --input: oklch(0.9 0.012 90);
+  --ring: oklch(0.52 0.07 288);
+
+  /* relationship semantics - used by both canvas edges and UI chips */
+  --link-parent: oklch(0.45 0.085 288);
+  --link-child: oklch(0.45 0.085 288);
+  --link-spouse: oklch(0.6 0.12 45);
+  --link-sibling: oklch(0.55 0.055 195);
+  --link-other: oklch(0.6 0.02 296);
+
+  --canvas-surface: oklch(0.975 0.007 86);
+  --canvas-grid: oklch(0.55 0.03 290);
+  --canvas-node: oklch(0.998 0.003 85);
+}
+
+.dark {
+  --background: oklch(0.168 0.012 290);
+  --foreground: oklch(0.94 0.008 90);
+
+  --card: oklch(0.208 0.014 290);
+  --card-foreground: oklch(0.94 0.008 90);
+
+  --popover: oklch(0.225 0.015 290);
+  --popover-foreground: oklch(0.94 0.008 90);
+
+  --primary: oklch(0.74 0.082 288);
+  --primary-foreground: oklch(0.18 0.02 290);
+
+  --secondary: oklch(0.26 0.016 290);
+  --secondary-foreground: oklch(0.93 0.008 90);
+
+  --muted: oklch(0.255 0.015 290);
+  --muted-foreground: oklch(0.72 0.014 290);
+
+  --accent: oklch(0.78 0.115 65);
+  --accent-foreground: oklch(0.2 0.03 60);
+
+  --destructive: oklch(0.62 0.16 25);
+  --destructive-foreground: oklch(0.15 0.02 290);
+
+  --border: oklch(0.31 0.016 290);
+  --input: oklch(0.33 0.016 290);
+  --ring: oklch(0.62 0.06 288);
+
+  --link-parent: oklch(0.74 0.075 288);
+  --link-child: oklch(0.74 0.075 288);
+  --link-spouse: oklch(0.76 0.1 48);
+  --link-sibling: oklch(0.72 0.05 195);
+  --link-other: oklch(0.65 0.014 290);
+
+  --canvas-surface: oklch(0.155 0.011 290);
+  --canvas-grid: oklch(0.78 0.02 290);
+  --canvas-node: oklch(0.215 0.014 290);
+}
+
+@theme inline {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-fraunces), ui-serif, Georgia, serif;
+  --font-devanagari: var(--font-devanagari), var(--font-inter), sans-serif;
+  --font-kannada: var(--font-kannada), var(--font-inter), sans-serif;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-link-parent: var(--link-parent);
+  --color-link-child: var(--link-child);
+  --color-link-spouse: var(--link-spouse);
+  --color-link-sibling: var(--link-sibling);
+  --color-link-other: var(--link-other);
+
+  --color-canvas-surface: var(--canvas-surface);
+  --color-canvas-grid: var(--canvas-grid);
+  --color-canvas-node: var(--canvas-node);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 10px);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* The canvas owns its own gestures: never let the browser hijack them. */
+  .vv-canvas {
+    touch-action: none;
+    overscroll-behavior: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /*
+   * Level of detail, driven by `data-lod` on the world layer (set imperatively
+   * during camera moves). Zooming therefore never re-renders the node tree:
+   * the detail simply steps back as the user moves away.
+   */
+  [data-lod="mid"] .vv-node-counts {
+    display: none;
+  }
+
+  [data-lod="far"] .vv-node-detail,
+  [data-lod="far"] .vv-node-avatar {
+    display: none;
+  }
+
+  [data-lod="far"] .vw-node {
+    padding-inline: 0.75rem;
+  }
+
+  ::selection {
+    background-color: color-mix(in oklab, var(--accent) 32%, transparent);
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Motion: short, quiet, purposeful.
+ * ------------------------------------------------------------------ */
+@keyframes vv-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes vv-dialog-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -48%) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes vv-sheet-in-right {
+  from {
+    transform: translateX(2.5%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes vv-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Registered with @utility so they can carry variants, e.g.
+ * `data-[state=open]:vv-dialog`. */
+@utility vv-fade {
+  animation: vv-fade-in 160ms ease-out;
+}
+
+@utility vv-dialog {
+  animation: vv-dialog-in 190ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@utility vv-sheet {
+  animation: vv-sheet-in-right 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@utility vv-rise {
+  animation: vv-rise 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vv-fade,
+  .vv-dialog,
+  .vv-sheet,
+  .vv-rise {
+    animation: none;
+  }
+}
+
+/* Paper-ish texture used sparingly behind the dashboard hero. */
+.vv-hairline {
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    color-mix(in oklab, var(--foreground) 12%, transparent) 1px,
+    transparent 0
+  );
+  background-size: 16px 16px;
+}
+
+.vv-scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--foreground) 22%, transparent) transparent;
+}
+
+.vv-scroll-thin::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.vv-scroll-thin::-webkit-scrollbar-thumb {
+  background-color: color-mix(in oklab, var(--foreground) 18%, transparent);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+}
+
+.vv-scroll-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
