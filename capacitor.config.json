@@ -1,5 +1,5 @@
 {
-  "appId": "app.vamshavriksha.desktop",
+  "appId": "app.web.vamshavriksha",
   "appName": "Vamsha-Vriksha",
   "webDir": "out",
   "bundledWebRuntime": false,
