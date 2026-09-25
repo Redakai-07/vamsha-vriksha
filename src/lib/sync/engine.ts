@@ -370,6 +370,15 @@ async function pushDelete(
 ): Promise<{ pushed: boolean; conflicts: number }> {
   const db = getDb();
   const stamp = nowIso();
+
+  if (!row.cloudRev) {
+    // Created and deleted without ever being published: there is nothing in the
+    // account to tombstone, and inventing one would leave litter behind.
+    await dropBase(row.collection, row.entityId);
+    await dropFromQueue(db, row.collection, row.entityId);
+    return { pushed: false, conflicts: 0 };
+  }
+
   const result = await backend.putRecord({
     accountId: account.accountId,
     collection: row.collection,
@@ -416,8 +425,11 @@ async function pushEntity(
     }
 
     const meta = readSyncMeta(local);
-    if (meta.rev <= meta.syncedRev) {
-      // Nothing unpublished: the queue entry was stale.
+    // A row is only "nothing to publish" if the provider has a revision of it
+    // that this device acknowledged. A row with no provider revision has never
+    // been sent, however its counters look - which is exactly the state of work
+    // created before sync existed.
+    if (meta.cloudRev > 0 && meta.rev <= meta.syncedRev) {
       await dropFromQueue(db, collection, entityId);
       return { pushed: false, conflicts: 0 };
     }

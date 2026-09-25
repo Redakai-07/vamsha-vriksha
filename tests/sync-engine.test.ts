@@ -166,6 +166,30 @@ describe("backing up and syncing", () => {
     expect(summary.pushed).toBe(queued.length);
   });
 
+  it("uploads work that predates sync entirely", async () => {
+    const { project, rama } = await seedLineage();
+    // Exactly what an older build left behind: rows with no sync block at all,
+    // and so no revision history to compare.
+    await getDb().people.toCollection().modify((person) => {
+      delete person.sync;
+    });
+    await getDb().projects.toCollection().modify((row) => {
+      delete row.sync;
+    });
+    await getDb().canvasStates.toCollection().modify((row) => {
+      delete row.sync;
+    });
+
+    await writeAccount(ACCOUNT);
+    setSyncEnabled(true);
+    const summary = await engine().backUpProject(project.id);
+
+    expect(summary.pushed).toBeGreaterThan(0);
+    const records = await mirror.listAll(ACCOUNT.accountId);
+    expect(records.some((record) => record.collection === "people" && record.id === rama.id)).toBe(true);
+    expect(await getDb().outbox.count()).toBe(0);
+  });
+
   it("does not re-upload records the account already has", async () => {
     await seedLineage();
     await signInAndBackUp();

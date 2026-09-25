@@ -249,8 +249,6 @@ export function CanvasToolbar({
           </TooltipContent>
         </Tooltip>
 
-        <SyncStatusChip />
-
         <div className="hidden items-center gap-1.5 sm:flex">
           <Tooltip>
             <TooltipTrigger asChild>

@@ -46,11 +46,19 @@ export function readSyncMeta(entity: SyncableEntity | null | undefined): SyncMet
   return entity?.sync ?? defaultSyncMeta();
 }
 
-/** A row is dirty when its content has moved past what the cloud acknowledged. */
+/**
+ * A row is dirty when the cloud does not have this content.
+ *
+ * Two cases: its revision has moved past what the provider acknowledged, or it
+ * has never been published at all (`cloudRev === 0`). The second case matters
+ * for work that predates sync - a lineage created before the user ever signed
+ * in carries no revision history, and treating it as clean would silently skip
+ * the very backup the user just asked for.
+ */
 export function isDirty(entity: SyncableEntity | null | undefined): boolean {
   if (!entity) return false;
   const meta = readSyncMeta(entity);
-  return meta.rev > meta.syncedRev;
+  return meta.cloudRev === 0 || meta.rev > meta.syncedRev;
 }
 
 export function isTombstoned(entity: SyncableEntity | null | undefined): boolean {

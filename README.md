@@ -28,6 +28,16 @@ npm run icons        # regenerate PWA icons from the vector source
 `npm run build` also writes the service worker (`scripts/generate-sw.mjs`),
 precaching the whole shell so the app opens with the network switched off.
 
+Cloud sync is opt-in at build time and needs no other change to the app:
+
+```bash
+NEXT_PUBLIC_VV_SYNC_ENDPOINT=https://your-endpoint npm run build
+NEXT_PUBLIC_GOOGLE_CLIENT_ID=… npm run build
+```
+
+With neither set, the build is identical in behaviour to a purely local one and
+the sign-in dialog says so.
+
 ---
 
 ## Architecture
@@ -51,6 +61,8 @@ src/
     db/                     Dexie schema, migrations, repositories, backup
     canvas/                 viewport math, layout engines, routing, placement
     relationship/           path finding + terminology (this is the core)
+    sync/                   OPTIONAL replication: queue, merge, engine, backends
+    auth/                   OPTIONAL Google sign-in (no credentials stored)
     utils/                  ids, dates, names, images, downloads
 ```
 
@@ -64,6 +76,10 @@ Rules that keep the layers honest:
   the renderer never imports an algorithm.
 - **Kinship words are data, not code.** No component contains a kinship term;
   the vocabulary lives in `lib/relationship/terms/*`.
+- **Sync is a leaf, never a dependency.** `lib/db` and `lib/domain` know
+  nothing about it: repositories call one staging helper, and the merge, the
+  queue and the backends are all pure or trivially injected, so the app (and its
+  tests) run identically with no account, no endpoint and no network.
 
 ---
 
@@ -71,7 +87,7 @@ Rules that keep the layers honest:
 
 | Entity | Purpose | Key fields |
 | --- | --- | --- |
-| `Project` | One independent family tree | `name`, `description`, `kinshipSystem`, `createdAt`, `updatedAt` |
+| `Project` | One independent family tree | `name`, `description`, `kinshipSystem`, `createdAt`, `updatedAt`, `sync?` |
 | `Person` | A human being | `name`, `displayName`, `gender`, `dateOfBirth`, `dateOfDeath`, `placeOfBirth`, `occupation`, `education`, `biography`, `profilePhoto`, `notes` |
 | `Relationship` | A recorded fact between two people | `projectId`, `type` (`parent` \| `spouse` \| `sibling` \| `other`), `fromPersonId`, `toPersonId`, `label`, `status`, `notes` |
 | `Biodata` | Extended, optional detail | `placeOfBirth`, `placeOfDeath`, `occupation`, `education`, `biography`, `customFields[]` |
@@ -114,6 +130,121 @@ UI. That is why the app never duplicates a sibling row it can infer.
   debounced viewport save can never roll back a node the user just placed.
 - Full export / import (JSON) is available from Preferences & data, plus
   per-person export from the profile panel.
+
+---
+
+## Optional cloud backup & sync
+
+The app is complete without an account; this section is the only thing that
+changes that, and nothing else in the codebase branches on whether anyone is
+signed in.
+
+### What it does
+
+- **`Continue without account` and `Sign in with Google` are offered side by
+  side** (a chip in the dashboard header and the canvas toolbar opens the
+  dialog). Signing in is never an onboarding wall.
+- **IndexedDB stays the working database.** Sync is a replica layer: every
+  repository writes locally first and queues as a side effect, inside the same
+  transaction, so an edit can never block on the network and a failed sync is a
+  delayed upload rather than a failed save.
+- **Only what changed travels.** Pushes are driven by a coalesced per-entity
+  outbox; pulls are incremental from a single watermark.
+- **Status is stated plainly, and only when true:** `Local only`, `Offline`,
+  `Offline · changes saved locally`, `Changes saved locally`, `Syncing…`,
+  `Synced`.
+
+### First sign-in
+
+A device that has been used offline is asked, once:
+
+> **You have existing local projects.** — *Back up these projects to your
+> account* / *Keep them local* / *Do this later*
+
+Nothing is uploaded before that answer. "Keep them local" is enforced in
+`stageUpsert`/`stageDelete`, so a later edit cannot sneak the project back into
+the queue; "Do this later" holds the lineages back and asks again next time.
+
+### The shape of a synchronized record
+
+Each entity gains an optional `sync` block plus a tombstone field:
+
+| Field | Meaning |
+| --- | --- |
+| `sync.rev` | local revision, bumped by every local write |
+| `sync.syncedRev` | the revision the provider acknowledged |
+| `sync.cloudRev` | the provider revision this row descends from |
+| `sync.origin` | device that produced the content (conflict tiebreaker) |
+| `sync.state` | `local` / `pending` / `synced` / `conflict` |
+| `deletedAt` | tombstone, so a delete cannot race an edit into oblivion |
+
+Fields absent from `SYNC_PAYLOAD_FIELDS` never leave the device - most
+importantly `CanvasState.viewport`, because where one person has scrolled to is
+ergonomics, not genealogy. A delete is published as a tombstone rather than as
+an absent row, which is what lets a device that is editing the same record
+answer back with content instead of losing it.
+
+### Conflicts
+
+Every write to the provider is a **compare-and-set on `sync.cloudRev`**. A client
+that is behind is *told* it is behind, and the answer is a three-way merge
+against the last content both sides agreed on (`syncBase`):
+
+1. a field only one side changed is taken from that side, silently - which is
+   the common case, and means most "conflicts" never become conflicts;
+2. a field both sides changed goes to the later `updatedAt`; ties are broken by
+   comparing device ids, and then in favour of the cloud;
+3. the losing value is written to the `conflicts` table and surfaced in the
+   Backup & sync dialog, where one click puts it back and queues it;
+4. list-like fields (canvas positions, pinned people, extra biodata fields) are
+   merged by union, so two devices editing different things both keep their work;
+5. a delete never destroys a concurrent edit, in either direction.
+
+Last-write-wins is therefore never applied to a whole record, and nothing is
+discarded without being kept somewhere the user can see and undo.
+
+### Endpoints
+
+`src/lib/sync/types.ts` defines the `SyncBackend` seam. Two implementations ship:
+
+- `backend.local.ts` - the cloud simulated in a **separate** IndexedDB database
+  (the "This browser" practice account). Used by the tests and by any build with
+  no endpoint configured, so the whole engine is exercisable with no network.
+- `backend.remote.ts` - JSON over HTTPS:
+
+```
+POST {base}/changes   { since, limit }  -> { records, cursor, hasMore }
+GET  {base}/record    ?collection=&id=  -> { record } | 404
+POST {base}/put       PutRecordInput     -> { record } | 409 { current }
+GET  {base}/project   ?projectId=       -> { records }
+GET  {base}/all                          -> { records }
+```
+
+`/put` **must** be a compare-and-set on `baseRev` and **must** answer `409` with
+the current row when the client is behind. That is the only guarantee the merge
+logic relies on.
+
+### Configuration & security
+
+```bash
+NEXT_PUBLIC_VV_SYNC_ENDPOINT=https://…   # absent: sync stays device-local
+NEXT_PUBLIC_GOOGLE_CLIENT_ID=…           # absent: the dialog says so
+```
+
+Google sign-in uses Google Identity Services: **the password is never seen,
+stored or transmitted by this app**, and the short-lived access token lives in a
+module variable - never in IndexedDB, `localStorage` or a cookie. After a reload
+the app asks Google to renew silently and, if Google requires interaction, says
+"Sign in again to sync" rather than pretending. A deployment that wants
+long-lived sessions should exchange the token for its own session at the
+endpoint. Error messages carry status codes, never payloads - no family data is
+logged. **Signing out removes the account row and keeps every project.**
+
+### Verifying without a provider
+
+The practice account exercises the whole engine - queue, push, pull, tombstones,
+merges, conflicts, recovery - against a mirror in this browser. It is labelled as
+device-local everywhere it appears and is never presented as a backup.
 
 ---
 
@@ -235,7 +366,7 @@ mode. Typing in any field disables every shortcut.
 npm test
 ```
 
-96 unit tests across six suites, all pure (fake IndexedDB, no browser):
+150 unit tests across eleven suites, all pure (fake IndexedDB, no browser):
 
 - `viewport` — pan/zoom math, screen↔world round-trips, fit-to-content
 - `layout` — generation assignment (couples, sibling chains, cycles), overlap
@@ -245,10 +376,19 @@ npm test
 - `relationships` — storage invariants, direction rules, duplicate/cycle refusal
 - `kinship` — terms, script rendering and the result view helper
 - `db` — repositories, cascades, migrations, backups, placement writes
+- `sync-merge` — three-way merge, union merges, deterministic tie-breaking,
+  delete-vs-edit in both directions, preservation of the losing value
+- `sync-queue` — staging inside the writer's transaction, coalescing, tombstones
+  with their base revision, cascades, and "keep it local" exclusions
+- `sync-engine` — offline behaviour, incremental pushes, a second device editing
+  the same person (clean merge *and* conflict), delete resurrection, recovery on
+  a wiped device, and work that predates sync entirely
 
 Verified by hand in a browser as well: offline reload with the network off,
 add/edit/persist, relationship creation, finder path highlighting, guide search,
-and the "unnamed relationship" path.
+the "unnamed relationship" path, and the full optional-sync walkthrough -
+offline use, sign-in, the first-sign-in question, backup, a reload, an offline
+edit, reconnecting, a change arriving from another device, and signing out.
 
 ---
 
@@ -265,13 +405,27 @@ and the "unnamed relationship" path.
 - The layout is a single-pass layered layout with a sibling-group rule; very
   large or heavily interconnected graphs can still produce long edges. Manual
   drag, pinning and tidy-up exist for that reason.
-- No authentication, cloud sync or collaboration yet — by design for this phase.
+- Cloud sync is optional and unverified against a real provider: the HTTP
+  adapter implements the documented contract, but the endpoint itself is an
+  external service this repository does not contain. Builds without
+  `NEXT_PUBLIC_VV_SYNC_ENDPOINT` never leave the device.
+- Google tokens are deliberately not persisted, so a signed-in session needs
+  silent renewal (or one tap) after a reload, and true long-lived sessions need
+  a token exchange at the endpoint.
+- "Keep them local" is per device, not per account: a project kept back on this
+  browser stays back even if another account signs in here.
+- Sharing and access control are not implemented - a project belongs to the
+  account that backed it up and to no one else.
+- Merge granularity is the field, not the value inside it: two devices editing
+  the same free-text biography produce one winner plus a preserved copy rather
+  than an interleaved merge.
 - Backup files are plain JSON (readable, no encryption).
 
 ---
 
 ## Roadmap
 
-Cloud sync as an *optional* enhancement (Google auth), multi-device merge with
-per-record vector clocks, printed pedigree charts, audio-recorded oral
+A first provider integration (verified end to end against a real endpoint),
+sharing a lineage with relatives who may only edit part of it, per-field conflict
+resolution UI for long text, printed pedigree charts, audio-recorded oral
 histories attached to a person, and Capacitor builds for Android/iOS.

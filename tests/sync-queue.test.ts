@@ -48,7 +48,7 @@ describe("sync queue", () => {
     const project = await projectsRepo.create({ name: "Lineage" });
     const person = await peopleRepo.create({ projectId: project.id, name: "Rama" });
 
-    await peopleRepo.update(person.id, { occupation: undefined, notes: "one" });
+    await peopleRepo.update(person.id, { notes: "one" });
     await peopleRepo.update(person.id, { notes: "two" });
     await peopleRepo.update(person.id, { notes: "three" });
 
@@ -60,6 +60,7 @@ describe("sync queue", () => {
     // One queue entry, but the revision keeps climbing: it is what the merge
     // compares, and collapsing it would lose "this changed after the last sync".
     expect(readSyncMeta(stored).rev).toBe(4);
+    expect(readSyncMeta(stored).state).toBe("pending");
   });
 
   it("stages a delete as a tombstone carrying its base revision", async () => {

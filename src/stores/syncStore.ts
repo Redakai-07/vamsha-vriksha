@@ -66,6 +66,8 @@ interface SyncStoreState {
 
   hydrate(): Promise<void>;
   refresh(): Promise<void>;
+  /** Live queue size, fed by a database subscription rather than by polling. */
+  setPending(pending: number): void;
   /** Asks the first-contact question when it applies, and holds work back until answered. */
   maybeAskAboutLocalProjects(): Promise<void>;
   setOnline(online: boolean): void;
@@ -169,6 +171,10 @@ export const useSyncStore = create<SyncStoreState>((set, get) => ({
   setOnline(online) {
     set({ online });
     if (online && get().account) void get().syncNow("reconnect");
+  },
+
+  setPending(pending) {
+    if (get().pending !== pending) set({ pending });
   },
 
   setAccountDialogOpen(open) {

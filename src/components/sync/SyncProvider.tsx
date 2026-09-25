@@ -1,9 +1,11 @@
 "use client";
 
+import { useLiveQuery } from "dexie-react-hooks";
 import { useEffect, type ReactNode } from "react";
 
 import { AccountDialog } from "@/components/sync/AccountDialog";
 import { FirstSignInDialog } from "@/components/sync/FirstSignInDialog";
+import { getDb } from "@/lib/db/db";
 import { useSyncStore } from "@/stores/syncStore";
 
 /**
@@ -23,10 +25,24 @@ export function SyncProvider({ children }: { children?: ReactNode }) {
   const syncNow = useSyncStore((state) => state.syncNow);
   const account = useSyncStore((state) => state.account);
   const pending = useSyncStore((state) => state.pending);
+  const setPending = useSyncStore((state) => state.setPending);
 
   useEffect(() => {
     void hydrate();
   }, [hydrate]);
+
+  /**
+   * The queue is observed, not polled.
+   *
+   * This is what makes the status line immediate: the moment an edit is staged
+   * - offline, in the middle of a drag, while a dialog is open - the chip goes
+   * from "Offline" to "Offline · changes saved locally" without waiting for the
+   * next sync attempt to notice.
+   */
+  const livePending = useLiveQuery(() => getDb().outbox.count(), [], 0);
+  useEffect(() => {
+    if (typeof livePending === "number") setPending(livePending);
+  }, [livePending, setPending]);
 
   useEffect(() => {
     const goOnline = () => setOnline(true);
