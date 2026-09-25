@@ -61,6 +61,9 @@ export interface FamilyCanvasProps {
   onZoomIn(): void;
   onZoomOut(): void;
   onFit(): void;
+  /** Recentre the camera on whoever is selected, if anyone is. */
+  onFocusSelected(): void;
+  focusTargetAvailable: boolean;
   onTidyUp(): void;
   onToggleMinimap(): void;
   isEmptyProject: boolean;
@@ -110,6 +113,8 @@ export function FamilyCanvas({
   onZoomIn,
   onZoomOut,
   onFit,
+  onFocusSelected,
+  focusTargetAvailable,
   onTidyUp,
   onToggleMinimap,
   isEmptyProject,
@@ -287,6 +292,8 @@ export function FamilyCanvas({
         onZoomIn={onZoomIn}
         onZoomOut={onZoomOut}
         onFit={onFit}
+        onFocusSelected={onFocusSelected}
+        focusSelectedDisabled={!focusTargetAvailable}
         onTidyUp={onTidyUp}
         onToggleMinimap={onToggleMinimap}
         minimapOpen={showMinimap}

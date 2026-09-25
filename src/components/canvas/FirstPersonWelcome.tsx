@@ -36,7 +36,7 @@ export function FirstPersonWelcome({
   return (
     <div
       data-canvas-node
-      className="absolute flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-[var(--canvas-node)]/60 px-8 text-center"
+      className="vv-rise absolute flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-[var(--canvas-node)]/60 px-8 text-center"
       style={{
         left: position.x,
         top: position.y,
@@ -58,6 +58,18 @@ export function FirstPersonWelcome({
       <Button size="lg" className="mt-4" onClick={onCreate}>
         <Plus /> Add first person
       </Button>
+
+      {/* Two ways in, and each line is shown only where it is true: a phone has
+          the toolbar button and no double click, a desktop has both. Neither is
+          an instruction, both are a reassurance. */}
+      <p className="mt-3.5 flex items-center gap-1.5 text-[11px] text-muted-foreground/85 sm:hidden">
+        <span aria-hidden className="size-1 rounded-full bg-accent/70" />
+        Everything stays in this browser
+      </p>
+      <p className="mt-3.5 hidden items-center gap-1.5 text-[11px] text-muted-foreground/85 sm:flex">
+        <span aria-hidden className="size-1 rounded-full bg-accent/70" />
+        Or double-click anywhere on the canvas
+      </p>
     </div>
   );
 }

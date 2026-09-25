@@ -18,6 +18,7 @@ import { BrandMark } from "@/components/canvas/CanvasToolbar";
 import { CreateProjectDialog } from "@/components/projects/CreateProjectDialog";
 import { ProjectCard } from "@/components/projects/ProjectCard";
 import { SettingsDialog } from "@/components/settings/SettingsDialog";
+import { SyncStatusChip } from "@/components/sync/SyncStatusChip";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
@@ -36,6 +37,7 @@ import type { Project } from "@/lib/domain/types";
 import { downloadTextFile } from "@/lib/utils/download";
 import { useProjectList } from "@/hooks/useProjectData";
 import { usePreferencesStore } from "@/stores/preferencesStore";
+import { useSyncStore } from "@/stores/syncStore";
 
 /**
  * The dashboard is the offline home screen: it lists every lineage stored in
@@ -95,6 +97,7 @@ export function ProjectDashboard() {
           <span className="font-display text-[15px] font-medium tracking-tight">Vamsha-Vriksha</span>
           <span className="text-[11px] text-muted-foreground">वंश-वृक्ष</span>
           <span className="flex-1" />
+          <SyncStatusChip />
           <Button variant="ghost" size="sm" onClick={() => setSettingsOpen(true)}>
             <Settings /> <span className="hidden sm:inline">Preferences &amp; data</span>
           </Button>
@@ -192,7 +195,7 @@ export function ProjectDashboard() {
           <Feature
             icon={KeyRound}
             title="Sign-in is optional"
-            body="There is no account in this phase and nothing is synced. Google authentication and cloud sync are planned as optional enhancements - the app never requires them."
+            body="Everything works without an account. Signing in with Google adds an optional backup you can open on another device - nothing is uploaded until you decide, and signing out leaves every project right here."
           />
           <Feature
             icon={WifiOff}
@@ -212,7 +215,9 @@ export function ProjectDashboard() {
       <SettingsDialog
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
-        onDataChanged={() => undefined}
+        // A wipe can also remove the signed-in account, so the status chip is
+        // re-hydrated rather than left claiming a backup that no longer exists.
+        onDataChanged={() => void useSyncStore.getState().hydrate()}
       />
 
       <Dialog open={renaming !== null} onOpenChange={(open) => !open && setRenaming(null)}>

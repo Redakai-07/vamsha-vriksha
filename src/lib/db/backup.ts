@@ -1,5 +1,6 @@
 import { getDb } from "@/lib/db/db";
 import { projectsRepo } from "@/lib/db/repositories/projects";
+import { stageUpsert } from "@/lib/sync/queue";
 import type {
   Biodata,
   CanvasState,
@@ -113,14 +114,16 @@ export async function importBackup(
 
   await db.transaction(
     "rw",
-    [db.projects, db.people, db.relationships, db.biodata, db.canvasStates],
+    [db.projects, db.people, db.relationships, db.biodata, db.canvasStates, db.outbox],
     async () => {
       for (const bundle of parsed.bundles) {
         if (!bundle?.project) continue;
         const projectId = createId("prj");
         importedProjectIds.push(projectId);
 
-        await db.projects.add({
+        // Imported rows are staged like any other write, so an import made while
+        // signed in reaches the account without a second thought from the user.
+        await stageUpsert(db, "projects", {
           ...bundle.project,
           id: projectId,
           name: mode === "replace" ? bundle.project.name : `${bundle.project.name} (imported)`,
@@ -132,14 +135,14 @@ export async function importBackup(
         for (const person of bundle.people ?? []) {
           const newId = createId("per");
           personIdMap.set(person.id, newId);
-          await db.people.add({ ...person, id: newId, projectId });
+          await stageUpsert(db, "people", { ...person, id: newId, projectId });
         }
 
         for (const relationship of bundle.relationships ?? []) {
           const from = personIdMap.get(relationship.fromPersonId);
           const to = personIdMap.get(relationship.toPersonId);
           if (!from || !to) continue;
-          await db.relationships.add({
+          await stageUpsert(db, "relationships", {
             ...relationship,
             id: createId("rel"),
             projectId,
@@ -151,7 +154,7 @@ export async function importBackup(
         for (const biodata of bundle.biodata ?? []) {
           const personId = personIdMap.get(biodata.personId);
           if (!personId) continue;
-          await db.biodata.add({
+          await stageUpsert(db, "biodata", {
             ...biodata,
             id: personId,
             personId,
@@ -166,7 +169,7 @@ export async function importBackup(
           if (newId) positions[newId] = position;
         }
 
-        await db.canvasStates.put({
+        await stageUpsert(db, "canvasStates", {
           id: projectId,
           projectId,
           viewport: bundle.canvas?.viewport ?? { x: 0, y: 0, zoom: 1 },
@@ -196,7 +199,17 @@ export async function resetEverything(): Promise<void> {
   const db = getDb();
   await db.transaction(
     "rw",
-    [db.projects, db.people, db.relationships, db.biodata, db.canvasStates, db.meta],
+    [
+      db.projects,
+      db.people,
+      db.relationships,
+      db.biodata,
+      db.canvasStates,
+      db.meta,
+      db.outbox,
+      db.conflicts,
+      db.syncBase,
+    ],
     async () => {
       await Promise.all([
         db.projects.clear(),
@@ -205,6 +218,12 @@ export async function resetEverything(): Promise<void> {
         db.biodata.clear(),
         db.canvasStates.clear(),
         db.meta.clear(),
+        // The queue and merge state describe rows that are about to stop
+        // existing, so they go too - otherwise a wipe would leave tombstones
+        // queued for records the account never had.
+        db.outbox.clear(),
+        db.conflicts.clear(),
+        db.syncBase.clear(),
       ]);
     },
   );

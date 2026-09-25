@@ -8,6 +8,7 @@ import { peopleRepo } from "@/lib/db/repositories/people";
 import { preferencesRepo } from "@/lib/db/repositories/preferences";
 import { projectsRepo } from "@/lib/db/repositories/projects";
 import { relationshipsRepo } from "@/lib/db/repositories/relationships";
+import { readSyncMeta } from "@/lib/sync/queue";
 
 beforeEach(async () => {
   await openDatabase();
@@ -253,18 +254,31 @@ describe("offline persistence", () => {
     expect(canvas.viewport).toEqual({ x: -100, y: 40, zoom: 1.35 });
   });
 
-  it("runs on schema version 2 after migrations", async () => {
+  it("runs on schema version 3 after migrations", async () => {
     await openDatabase();
-    expect(getDb().verno).toBe(2);
+    expect(getDb().verno).toBe(3);
     expect(getDb().tables.map((table) => table.name).sort()).toEqual([
       "biodata",
       "canvasStates",
+      "conflicts",
       "meta",
+      "outbox",
       "people",
       "preferences",
       "projects",
       "relationships",
+      "syncBase",
     ]);
+  });
+
+  it("adds the sync tables without disturbing existing rows", async () => {
+    const project = await projectsRepo.create({ name: "Pre-sync lineage" });
+    const person = await peopleRepo.create({ projectId: project.id, name: "Older than sync" });
+
+    // A row written before sync existed has no `sync` block at all, and every
+    // reader has to keep working with that.
+    expect((await getDb().people.get(person.id))?.sync).toBeDefined();
+    expect(readSyncMeta(await getDb().projects.get(project.id)).rev).toBeGreaterThan(0);
   });
 });
 

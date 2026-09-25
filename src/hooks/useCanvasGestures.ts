@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
+import { DOUBLE_TAP_MS, DOUBLE_TAP_SLOP } from "@/lib/canvas/constants";
 import { screenToWorld, wheelZoomFactor, zoomAtPoint } from "@/lib/canvas/viewport";
 import type { Point, Viewport } from "@/lib/domain/types";
 import { usePreferencesStore } from "@/stores/preferencesStore";
@@ -17,6 +18,7 @@ import { useWorkspaceStore } from "@/stores/workspaceStore";
  *   pinch                      zoom + pan together, anchored between the fingers
  *   click empty space          clear selection
  *   double click empty space   create a person at that exact world point
+ *   double tap empty space     zoom in on touch (and back out when close)
  *
  * Node dragging is NOT handled here - a node owns its own pointer events so the
  * surface never has to guess what the user grabbed.
@@ -26,6 +28,18 @@ export interface CanvasGesturesOptions {
   surfaceRef: React.RefObject<HTMLElement | null>;
   onEmptyClick?: () => void;
   onEmptyDoubleClick?: (worldPoint: Point) => void;
+  /**
+   * A two-finger-tap-style double tap on touch. Fingers have no second mouse
+   * button and no keyboard, so `zoom in here` has to exist as a gesture; the
+   * argument is the *screen* point, because the zoom is anchored to the finger.
+   */
+  onEmptyDoubleTap?: (screenPoint: Point) => void;
+  /**
+   * Wheel zoom, handed to the camera rather than applied here: the camera eases
+   * toward a zoom target, which is what turns a mouse wheel's coarse steps into
+   * a glide. Without it the wheel would jump the viewport directly.
+   */
+  onZoomGesture?: (factor: number, anchor: Point) => void;
   /** Called when a pan gesture starts, so the UI can show a grabbing cursor. */
   onPanningChange?: (panning: boolean) => void;
 }
@@ -34,9 +48,23 @@ export function useCanvasGestures({
   surfaceRef,
   onEmptyClick,
   onEmptyDoubleClick,
+  onEmptyDoubleTap,
+  onZoomGesture,
   onPanningChange,
 }: CanvasGesturesOptions) {
   const pointers = useRef(new Map<number, Point>());
+  /** Previous touch tap, for recognising a double tap without a dblclick. */
+  const lastTapRef = useRef<{ time: number; point: Point } | null>(null);
+  /*
+   * The wheel listener has to be attached imperatively (it must not be passive,
+   * because a canvas that lets the page scroll underneath a zoom is unusable).
+   * The surface, however, only exists once the project has loaded: on the first
+   * render it is a loading placeholder and the ref is empty, so attaching in a
+   * mount-only effect would silently leave the wheel dead - no zoom, no pan, no
+   * error. Tracking the resolved element keeps the attach honest whenever the
+   * canvas actually appears.
+   */
+  const [wheelTarget, setWheelTarget] = useState<HTMLElement | null>(null);
   const panRef = useRef<{ pointerId: number; start: Point; viewport: Viewport; moved: boolean } | null>(
     null,
   );
@@ -59,9 +87,15 @@ export function useCanvasGestures({
     [surfaceRef],
   );
 
+  // Pick up the surface as soon as it is in the DOM (see `wheelTarget`).
+  useEffect(() => {
+    const element = surfaceRef.current;
+    if (element && element !== wheelTarget) setWheelTarget(element);
+  });
+
   // ---- wheel (non-passive, attached manually) ---------------------------
   useEffect(() => {
-    const surface = surfaceRef.current;
+    const surface = wheelTarget;
     if (!surface) return;
 
     const onWheel = (event: WheelEvent) => {
@@ -91,12 +125,14 @@ export function useCanvasGestures({
         return;
       }
 
-      setViewport(zoomAtPoint(viewport, viewport.zoom * wheelZoomFactor(deltaY, isPinch), anchor));
+      const factor = wheelZoomFactor(deltaY, isPinch);
+      if (onZoomGesture) onZoomGesture(factor, anchor);
+      else setViewport(zoomAtPoint(viewport, viewport.zoom * factor, anchor));
     };
 
     surface.addEventListener("wheel", onWheel, { passive: false });
     return () => surface.removeEventListener("wheel", onWheel);
-  }, [localPoint, setViewport, surfaceRef]);
+  }, [localPoint, onZoomGesture, setViewport, wheelTarget]);
 
   // ---- pointer gestures -------------------------------------------------
   const onPointerDown = useCallback(
@@ -181,6 +217,8 @@ export function useCanvasGestures({
       if (!pointers.current.has(event.pointerId)) return;
 
       const wasPanning = panRef.current?.moved ?? false;
+      const now = performance.now();
+      const point = localPoint(event);
       pointers.current.delete(event.pointerId);
       surfaceRef.current?.releasePointerCapture?.(event.pointerId);
 
@@ -188,7 +226,30 @@ export function useCanvasGestures({
       if (pointers.current.size === 0) {
         panRef.current = null;
         onPanningChange?.(false);
-        if (!wasPanning) onEmptyClick?.();
+        if (wasPanning) {
+          lastTapRef.current = null;
+          return;
+        }
+
+        // Touch only. A desktop double click arrives as a real `dblclick` and
+        // means "add a person here", so recognising it here as well would open
+        // the dialog *and* zoom.
+        if (event.pointerType === "touch" && onEmptyDoubleTap) {
+          const previousTap = lastTapRef.current;
+          if (
+            previousTap &&
+            now - previousTap.time < DOUBLE_TAP_MS &&
+            Math.hypot(point.x - previousTap.point.x, point.y - previousTap.point.y) < DOUBLE_TAP_SLOP
+          ) {
+            lastTapRef.current = null;
+            onEmptyDoubleTap(point);
+            // A double tap is not two selections: swallow the second tap.
+            return;
+          }
+          lastTapRef.current = { time: now, point };
+        }
+
+        onEmptyClick?.();
         return;
       }
       // Dropping from two fingers to one: restart the pan from here.
@@ -200,7 +261,7 @@ export function useCanvasGestures({
         moved: false,
       };
     },
-    [onEmptyClick, onPanningChange, surfaceRef],
+    [localPoint, onEmptyClick, onEmptyDoubleTap, onPanningChange, surfaceRef],
   );
 
   const onDoubleClick = useCallback(

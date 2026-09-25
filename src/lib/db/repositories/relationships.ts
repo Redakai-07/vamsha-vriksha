@@ -5,7 +5,9 @@ import {
   validateNewRelationship,
   type RelationshipInput,
 } from "@/lib/domain/relationship";
+import { touchProjectStaged } from "@/lib/db/repositories/projects";
 import type { Relationship } from "@/lib/domain/types";
+import { stageDelete, stageUpsert } from "@/lib/sync/queue";
 import { createId, nowIso } from "@/lib/utils/id";
 
 export type CreateRelationshipResult =
@@ -59,10 +61,10 @@ export const relationshipsRepo = {
     if (!validation.ok) return { ok: false, reason: validation.reason };
 
     const relationship = createRelationship(candidate, createId("rel"));
-    await db.transaction("rw", db.relationships, db.projects, async () => {
-      await db.relationships.add(relationship);
-      const project = await db.projects.get(relationship.projectId);
-      if (project) await db.projects.put({ ...project, updatedAt: nowIso() });
+    const stamp = nowIso();
+    await db.transaction("rw", [db.relationships, db.projects, db.outbox], async () => {
+      await stageUpsert(db, "relationships", relationship);
+      await touchProjectStaged(db, relationship.projectId, stamp);
     });
 
     return { ok: true, relationship };
@@ -85,7 +87,9 @@ export const relationshipsRepo = {
       notes: patch.notes === undefined ? existing.notes : patch.notes?.trim() || undefined,
       updatedAt: nowIso(),
     };
-    await db.relationships.put(next);
+    await db.transaction("rw", [db.relationships, db.outbox], async () => {
+      await stageUpsert(db, "relationships", next);
+    });
     return next;
   },
 
@@ -93,11 +97,14 @@ export const relationshipsRepo = {
     const db = getDb();
     const existing = await db.relationships.get(relationshipId);
     if (!existing) return;
-    await db.transaction("rw", db.relationships, db.projects, async () => {
-      await db.relationships.delete(relationshipId);
-      const project = await db.projects.get(existing.projectId);
-      if (project) await db.projects.put({ ...project, updatedAt: nowIso() });
-    });
+    await db.transaction(
+      "rw",
+      [db.relationships, db.projects, db.outbox, db.syncBase],
+      async () => {
+        await stageDelete(db, "relationships", existing);
+        await touchProjectStaged(db, existing.projectId);
+      },
+    );
   },
 
   /** Resolves the single bond between two people, if one exists. */

@@ -143,6 +143,105 @@ export function fitToBounds(
   );
 }
 
+/**
+ * True when `rect` sits comfortably inside the visible world rectangle.
+ *
+ * Used to answer a question the user would otherwise have to answer by eye:
+ * "is the thing I just asked for already on screen?" - framing a path that is
+ * already in front of them would yank the canvas for no reason.
+ */
+export function rectWithinView(rect: Rect, view: Rect, margin = 0): boolean {
+  return (
+    rect.x >= view.x + margin &&
+    rect.y >= view.y + margin &&
+    rect.x + rect.width <= view.x + view.width - margin &&
+    rect.y + rect.height <= view.y + view.height - margin
+  );
+}
+
+/**
+ * One frame of a camera chasing a target: exponential approach, corrected for
+ * the real frame duration so the feel does not change with the refresh rate.
+ */
+export function approachViewport(
+  current: Viewport,
+  target: Viewport,
+  deltaMs: number,
+  timeConstantMs: number,
+): Viewport {
+  const t = 1 - Math.exp(-Math.max(0, deltaMs) / Math.max(1, timeConstantMs));
+  return lerpViewport(current, target, t);
+}
+
+/**
+ * One step of a camera chasing a target, with a deadline.
+ *
+ * Returns the next viewport and whether the chase is over. A chase ends when it
+ * has visibly arrived *or* when it has been running longer than `maxMs`, in
+ * which case it jumps the rest of the way: an asymptotic approach would never
+ * stop on its own.
+ */
+export function chaseStep(
+  current: Viewport,
+  target: Viewport,
+  options: {
+    deltaMs: number;
+    elapsedMs: number;
+    timeConstantMs: number;
+    maxMs: number;
+    distance?: number;
+    zoomEpsilon?: number;
+  },
+): { viewport: Viewport; settled: boolean } {
+  const distance = options.distance ?? 0.4;
+  const zoomEpsilon = options.zoomEpsilon ?? 0.002;
+  if (
+    options.elapsedMs >= options.maxMs ||
+    viewportSettled(current, target, distance, zoomEpsilon)
+  ) {
+    return { viewport: target, settled: true };
+  }
+  const approached = approachViewport(current, target, options.deltaMs, options.timeConstantMs);
+  if (viewportSettled(approached, target, distance, zoomEpsilon)) {
+    return { viewport: target, settled: true };
+  }
+  return { viewport: approached, settled: false };
+}
+
+/** True when a chasing camera has effectively arrived. */
+export function viewportSettled(
+  current: Viewport,
+  target: Viewport,
+  distance = 0.4,
+  zoomEpsilon = 0.0015,
+): boolean {
+  return (
+    Math.abs(current.x - target.x) < distance &&
+    Math.abs(current.y - target.y) < distance &&
+    Math.abs(current.zoom - target.zoom) < zoomEpsilon
+  );
+}
+
+/**
+ * True when something other than the owner of `applied` has moved the camera:
+ * the user grabbed it mid-animation. A chasing animation has to notice and get
+ * out of the way - two writers fighting over one viewport is a camera that
+ * stutters and refuses to be dragged.
+ */
+export function cameraMovedElsewhere(
+  current: Viewport,
+  applied: Viewport | null,
+  distance = 0.5,
+  zoomEpsilon = 0.002,
+): boolean {
+  if (!applied) return false;
+  return (
+    Math.abs(current.x - applied.x) > distance ||
+    Math.abs(current.y - applied.y) > distance ||
+    Math.abs(current.zoom - applied.zoom) > zoomEpsilon
+  );
+}
+
 export function viewportsEqual(a: Viewport, b: Viewport, epsilon = 0.001): boolean {
   return (
     Math.abs(a.x - b.x) < epsilon &&

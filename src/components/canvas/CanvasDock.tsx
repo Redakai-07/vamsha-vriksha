@@ -1,6 +1,6 @@
 "use client";
 
-import { Focus, Layers, Map as MapIcon, Minus, Plus } from "lucide-react";
+import { Crosshair, Focus, Layers, Map as MapIcon, Minus, Plus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -17,6 +17,9 @@ export interface CanvasDockProps {
   onZoomIn(): void;
   onZoomOut(): void;
   onFit(): void;
+  /** Bring the selected person to the middle of the screen. */
+  onFocusSelected(): void;
+  focusSelectedDisabled?: boolean;
   onTidyUp(): void;
   onToggleMinimap(): void;
   minimapOpen: boolean;
@@ -28,6 +31,8 @@ export function CanvasDock({
   onZoomIn,
   onZoomOut,
   onFit,
+  onFocusSelected,
+  focusSelectedDisabled,
   onTidyUp,
   onToggleMinimap,
   minimapOpen,
@@ -56,6 +61,16 @@ export function CanvasDock({
           <Plus />
         </DockButton>
         <span className="mx-1 h-5 w-px bg-border" />
+        {/* Selection-aware: it stays in place (a control that appears and
+            disappears makes the dock jump) but only lights up when there is
+            somebody to focus on. */}
+        <DockButton
+          label="Focus the selected person ( C )"
+          onClick={onFocusSelected}
+          disabled={focusSelectedDisabled}
+        >
+          <Crosshair />
+        </DockButton>
         <DockButton label="Fit to screen ( F )" onClick={onFit}>
           <Focus />
         </DockButton>
@@ -82,12 +97,14 @@ function DockButton({
   onClick,
   active,
   hideOnPhone,
+  disabled,
   children,
 }: {
   label: string;
   onClick(): void;
   active?: boolean;
   hideOnPhone?: boolean;
+  disabled?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -99,6 +116,7 @@ function DockButton({
           size="icon-sm"
           aria-label={label}
           onClick={onClick}
+          disabled={disabled}
           className={cn(hideOnPhone && "max-sm:hidden")}
         >
           {children}

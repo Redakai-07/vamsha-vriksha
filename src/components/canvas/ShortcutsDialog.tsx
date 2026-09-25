@@ -17,6 +17,7 @@ const GROUPS: { title: string; items: { keys: string[]; label: string }[] }[] = 
       { keys: ["Ctrl", "Scroll"], label: "Zoom, always" },
       { keys: ["Shift", "Scroll"], label: "Pan horizontally" },
       { keys: ["Pinch"], label: "Zoom and pan together on touch" },
+      { keys: ["Double tap"], label: "Zoom in on touch, and back out when close" },
       { keys: ["F"], label: "Fit the whole family on screen" },
       { keys: ["1"], label: "Reset zoom to 100%" },
       { keys: ["+", "−"], label: "Zoom in / out" },
@@ -39,6 +40,7 @@ const GROUPS: { title: string; items: { keys: string[]; label: string }[] }[] = 
     items: [
       { keys: ["L"], label: "Tidy up the layout" },
       { keys: ["/"], label: "Find how two people are related" },
+      { keys: ["G"], label: "Open the relationship guide" },
       { keys: ["M"], label: "Toggle the minimap" },
       { keys: ["Esc"], label: "Close panels and cancel a pending link" },
       { keys: ["?"], label: "Show this list" },

@@ -20,8 +20,16 @@ import { RelationshipGuide } from "@/components/kinship/RelationshipGuide";
 import { SettingsDialog } from "@/components/settings/SettingsDialog";
 import { ShortcutsDialog } from "@/components/canvas/ShortcutsDialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { NODE_HEIGHT, NODE_WIDTH } from "@/lib/canvas/constants";
+import {
+  DOUBLE_TAP_ZOOM_IN,
+  DOUBLE_TAP_ZOOM_OUT,
+  DOUBLE_TAP_ZOOM_OUT_ABOVE,
+  NODE_HEIGHT,
+  NODE_WIDTH,
+} from "@/lib/canvas/constants";
+import { boundsOfRects } from "@/lib/canvas/geometry";
 import { getLayoutEngine } from "@/lib/canvas/layout";
+import { rectWithinView } from "@/lib/canvas/viewport";
 import { placeNear, type PlacementRelation } from "@/lib/canvas/placement";
 import { exportProjectToFile, backupFileName, collectProjectBundle } from "@/lib/db/backup";
 import { canvasRepo } from "@/lib/db/repositories/canvas";
@@ -482,29 +490,48 @@ export function WorkspaceShell({ projectId, onBackToProjects }: WorkspaceShellPr
     };
   }, [finder.sourcePersonId, finder.targetPersonId, finderResult]);
 
-  const frameFinderPath = useCallback(() => {
-    if (!finderResult?.path) return;
-    const boxes = finderResult.path.personIds
-      .map((personId) => rects.get(personId))
-      .filter((rect): rect is NonNullable<typeof rect> => Boolean(rect));
-    if (!boxes.length) return;
-    const minX = Math.min(...boxes.map((rect) => rect.x));
-    const maxX = Math.max(...boxes.map((rect) => rect.x + rect.width));
-    const minY = Math.min(...boxes.map((rect) => rect.y));
-    const maxY = Math.max(...boxes.map((rect) => rect.y + rect.height));
-    const zoom = Math.max(
-      0.35,
-      Math.min(
-        1.1,
-        surfaceSize.width / (maxX - minX + 260),
-        surfaceSize.height / (maxY - minY + 260),
+  /** The world rectangle the highlighted path occupies, if there is one. */
+  const finderPathBounds = useMemo(
+    () =>
+      boundsOfRects(
+        (finderResult?.path?.personIds ?? [])
+          .map((personId) => rects.get(personId))
+          .filter((rect): rect is NonNullable<typeof rect> => Boolean(rect)),
       ),
-    );
-    camera.centerOn(
-      { x: (minX + maxX) / 2, y: (minY + maxY) / 2 },
-      { zoom, animate: true },
-    );
-  }, [camera, finderResult, rects, surfaceSize.height, surfaceSize.width]);
+    [finderResult, rects],
+  );
+
+  const frameFinderPath = useCallback(() => {
+    if (!finderPathBounds) return;
+    camera.fitToRects([finderPathBounds], { padding: 130, maxZoom: 1.1 });
+  }, [camera, finderPathBounds]);
+
+  /**
+   * The answer to "how are they related?" should arrive in view. Asking is the
+   * instruction; hunting for the highlighted path afterwards would be busywork,
+   * so the camera frames it - but only when it is not already on screen, since
+   * moving the canvas for something the user can already see is just noise.
+   */
+  const framedPathRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!finder.computed) {
+      framedPathRef.current = null;
+      return;
+    }
+    if (!finderPathBounds) return;
+    const key = `${finder.sourcePersonId}>${finder.targetPersonId}`;
+    if (framedPathRef.current === key) return;
+    framedPathRef.current = key;
+    if (rectWithinView(finderPathBounds, camera.visibleRect(), 24)) return;
+    frameFinderPath();
+  }, [
+    camera,
+    finder.computed,
+    finder.sourcePersonId,
+    finder.targetPersonId,
+    finderPathBounds,
+    frameFinderPath,
+  ]);
 
   const openFinderMode = useCallback(() => {
     const state = useWorkspaceStore.getState();
@@ -547,10 +574,27 @@ export function WorkspaceShell({ projectId, onBackToProjects }: WorkspaceShellPr
   useKeyboardShortcuts(shortcuts, !loading);
 
   // ---- gestures ----------------------------------------------------------
+  /** Stable identity, so the non-passive wheel listener is not re-attached. */
+  const zoomGesture = useCallback(
+    (factor: number, anchor: Point) => camera.zoomBy(factor, anchor),
+    [camera],
+  );
+
   const gestures = useCanvasGestures({
     surfaceRef,
     onEmptyClick: () => useWorkspaceStore.getState().select(null),
     onEmptyDoubleClick: (worldPoint) => setPersonDialog({ kind: "create", point: worldPoint }),
+    // A finger has no wheel: double tap is how a phone zooms, anchored to the
+    // spot the user pointed at. Close up it doubles back out, which makes it
+    // the way home as well as the way in.
+    onEmptyDoubleTap: (screenPoint) => {
+      const zoom = useWorkspaceStore.getState().viewport.zoom;
+      camera.zoomBy(
+        zoom >= DOUBLE_TAP_ZOOM_OUT_ABOVE ? DOUBLE_TAP_ZOOM_OUT : DOUBLE_TAP_ZOOM_IN,
+        screenPoint,
+      );
+    },
+    onZoomGesture: zoomGesture,
   });
 
   const countsByPerson = useMemo(() => {
@@ -693,6 +737,11 @@ export function WorkspaceShell({ projectId, onBackToProjects }: WorkspaceShellPr
         onZoomIn={() => camera.zoomIn()}
         onZoomOut={() => camera.zoomOut()}
         onFit={() => camera.fitToContent({ animate: true })}
+        onFocusSelected={() => {
+          const personId = useWorkspaceStore.getState().selectedPersonId;
+          if (personId) camera.centerOnPerson(personId, { animate: true });
+        }}
+        focusTargetAvailable={Boolean(selectedPersonId)}
         onTidyUp={() => void tidyUp()}
         onToggleMinimap={() => useWorkspaceStore.getState().toggleMinimap()}
       />

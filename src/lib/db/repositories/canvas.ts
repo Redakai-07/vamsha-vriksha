@@ -1,5 +1,6 @@
 import { getDb } from "@/lib/db/db";
 import type { CanvasState, Point, Viewport } from "@/lib/domain/types";
+import { stageUpsert } from "@/lib/sync/queue";
 import { createId, nowIso } from "@/lib/utils/id";
 
 export const DEFAULT_VIEWPORT: Viewport = { x: 0, y: 0, zoom: 1 };
@@ -38,6 +39,11 @@ export const canvasRepo = {
     return created;
   },
 
+  /**
+   * The viewport is device-local: where this person has scrolled to is
+   * ergonomics, not genealogy, so this write is deliberately NOT queued for
+   * sync. Both devices keep their own camera.
+   */
   async saveViewport(projectId: string, viewport: Viewport): Promise<void> {
     const db = getDb();
     // Same reasoning as setPositions: the viewport is saved on a debounce while
@@ -53,9 +59,9 @@ export const canvasRepo = {
     const db = getDb();
     // Read-modify-write inside one transaction so that a position written by an
     // explicit gesture can never be lost to a concurrent write.
-    await db.transaction("rw", db.canvasStates, async () => {
+    await db.transaction("rw", [db.canvasStates, db.outbox], async () => {
       const existing = await this.get(projectId);
-      await db.canvasStates.put({
+      await stageUpsert(db, "canvasStates", {
         ...existing,
         nodePositions: { ...existing.nodePositions, ...positions },
         updatedAt: nowIso(),
@@ -76,7 +82,7 @@ export const canvasRepo = {
     positions: Record<string, Point>,
   ): Promise<void> {
     const db = getDb();
-    await db.transaction("rw", db.canvasStates, async () => {
+    await db.transaction("rw", [db.canvasStates, db.outbox], async () => {
       const existing = await this.get(projectId);
       const next = { ...existing.nodePositions };
       let changed = false;
@@ -86,7 +92,7 @@ export const canvasRepo = {
         changed = true;
       }
       if (!changed) return;
-      await db.canvasStates.put({ ...existing, nodePositions: next, updatedAt: nowIso() });
+      await stageUpsert(db, "canvasStates", { ...existing, nodePositions: next, updatedAt: nowIso() });
     });
   },
 
@@ -99,11 +105,11 @@ export const canvasRepo = {
     // Returned through a box because Dexie transactions resolve with the
     // callback's value only on the transaction promise.
     let nowPinned = false;
-    await db.transaction("rw", db.canvasStates, async () => {
+    await db.transaction("rw", [db.canvasStates, db.outbox], async () => {
       const existing = await this.get(projectId);
       const pinned = existing.pinnedPersonIds.includes(personId);
       nowPinned = !pinned;
-      await db.canvasStates.put({
+      await stageUpsert(db, "canvasStates", {
         ...existing,
         pinnedPersonIds: pinned
           ? existing.pinnedPersonIds.filter((id) => id !== personId)
@@ -120,11 +126,13 @@ export const canvasRepo = {
     const canvas = await this.get(projectId);
     const entries = Object.entries(canvas.nodePositions).filter(([id]) => existingPersonIds.has(id));
     if (entries.length === Object.keys(canvas.nodePositions).length) return;
-    await db.canvasStates.put({
-      ...canvas,
-      nodePositions: Object.fromEntries(entries),
-      pinnedPersonIds: canvas.pinnedPersonIds.filter((id) => existingPersonIds.has(id)),
-      updatedAt: nowIso(),
+    await db.transaction("rw", [db.canvasStates, db.outbox], async () => {
+      await stageUpsert(db, "canvasStates", {
+        ...canvas,
+        nodePositions: Object.fromEntries(entries),
+        pinnedPersonIds: canvas.pinnedPersonIds.filter((id) => existingPersonIds.has(id)),
+        updatedAt: nowIso(),
+      });
     });
   },
 

@@ -1,5 +1,7 @@
 import { getDb } from "@/lib/db/db";
+import { touchProjectStaged } from "@/lib/db/repositories/projects";
 import type { Gender, Person } from "@/lib/domain/types";
+import { stageDelete, stageUpsert } from "@/lib/sync/queue";
 import { createId, nowIso } from "@/lib/utils/id";
 
 export interface CreatePersonInput {
@@ -39,10 +41,9 @@ export const peopleRepo = {
       updatedAt: stamp,
     };
 
-    await db.transaction("rw", db.people, db.projects, async () => {
-      await db.people.add(person);
-      const project = await db.projects.get(person.projectId);
-      if (project) await db.projects.put({ ...project, updatedAt: stamp });
+    await db.transaction("rw", [db.people, db.projects, db.outbox], async () => {
+      await stageUpsert(db, "people", person);
+      await touchProjectStaged(db, person.projectId, stamp);
     });
 
     return person;
@@ -64,17 +65,17 @@ export const peopleRepo = {
       notes: patch.notes === undefined ? existing.notes : patch.notes?.trim() || undefined,
       updatedAt: stamp,
     };
-    await db.transaction("rw", db.people, db.projects, async () => {
-      await db.people.put(next);
-      const project = await db.projects.get(next.projectId);
-      if (project) await db.projects.put({ ...project, updatedAt: stamp });
+    await db.transaction("rw", [db.people, db.projects, db.outbox], async () => {
+      await stageUpsert(db, "people", next);
+      await touchProjectStaged(db, next.projectId, stamp);
     });
     return next;
   },
 
   /**
    * Removes a person and every row that would otherwise dangle: their biodata,
-   * every relationship they were part of, and their canvas position.
+   * every relationship they were part of, and their canvas position. With an
+   * account signed in, each of those removals is published as a tombstone.
    */
   async remove(personId: string): Promise<{ removedRelationships: number }> {
     const db = getDb();
@@ -84,23 +85,26 @@ export const peopleRepo = {
     let removedRelationships = 0;
     await db.transaction(
       "rw",
-      [db.people, db.relationships, db.biodata, db.canvasStates, db.projects],
+      [db.people, db.relationships, db.biodata, db.canvasStates, db.projects, db.outbox, db.syncBase],
       async () => {
         const [asFrom, asTo] = await Promise.all([
           db.relationships.where("[projectId+fromPersonId]").equals([person.projectId, personId]).toArray(),
           db.relationships.where("[projectId+toPersonId]").equals([person.projectId, personId]).toArray(),
         ]);
-        const ids = new Set([...asFrom, ...asTo].map((rel) => rel.id));
-        removedRelationships = ids.size;
-        if (ids.size) await db.relationships.bulkDelete([...ids]);
+        const bonds = [...asFrom, ...asTo];
+        removedRelationships = bonds.length;
+        for (const bond of bonds) await stageDelete(db, "relationships", bond);
 
-        await db.biodata.where("personId").equals(personId).delete();
-        await db.people.delete(personId);
+        const [biodata, canvas] = await Promise.all([
+          db.biodata.where("personId").equals(personId).first(),
+          db.canvasStates.get(person.projectId),
+        ]);
+        if (biodata) await stageDelete(db, "biodata", biodata);
+        await stageDelete(db, "people", person);
 
-        const canvas = await db.canvasStates.get(person.projectId);
         if (canvas?.nodePositions?.[personId]) {
           const { [personId]: _removed, ...rest } = canvas.nodePositions;
-          await db.canvasStates.put({
+          await stageUpsert(db, "canvasStates", {
             ...canvas,
             nodePositions: rest,
             pinnedPersonIds: canvas.pinnedPersonIds.filter((id) => id !== personId),
@@ -110,7 +114,7 @@ export const peopleRepo = {
 
         const project = await db.projects.get(person.projectId);
         if (project) {
-          await db.projects.put({
+          await stageUpsert(db, "projects", {
             ...project,
             rootPersonId: project.rootPersonId === personId ? null : project.rootPersonId,
             updatedAt: nowIso(),

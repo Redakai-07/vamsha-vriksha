@@ -1,11 +1,21 @@
 import { describe, expect, it } from "vitest";
 
-import { MAX_ZOOM, MIN_ZOOM } from "@/lib/canvas/constants";
 import {
+  CAMERA_CHASE_MAX_MS,
+  MAX_ZOOM,
+  MIN_ZOOM,
+  ZOOM_SMOOTHING_MS,
+} from "@/lib/canvas/constants";
+import {
+  approachViewport,
+  cameraMovedElsewhere,
+  chaseStep,
   clampZoom,
   fitToBounds,
   panBy,
+  rectWithinView,
   screenToWorld,
+  viewportSettled,
   worldToScreen,
   zoomAtPoint,
   zoomByFactor,
@@ -80,5 +90,77 @@ describe("viewport math", () => {
     const viewport = fitToBounds({ x: 0, y: 0, width: 0, height: 0 }, { width: 0, height: 0 });
     expect(Number.isFinite(viewport.zoom)).toBe(true);
     expect(Number.isFinite(viewport.x)).toBe(true);
+  });
+
+  it("accumulates anchored zoom on the target camera", () => {
+    // The eased zoom chases a target, so consecutive wheel ticks are applied to
+    // the *target* rather than the live camera. Two ticks of 1.2 must therefore
+    // end up exactly where one tick of 1.44 would.
+    const anchor = { x: 420, y: 260 };
+    const start = { x: 10, y: 20, zoom: 1 };
+    const twice = zoomAtPoint(zoomAtPoint(start, start.zoom * 1.2, anchor), 1.2 * 1.2, anchor);
+    const once = zoomAtPoint(start, 1.44, anchor);
+    expect(twice.zoom).toBeCloseTo(once.zoom, 6);
+    expect(twice.x).toBeCloseTo(once.x, 6);
+    expect(twice.y).toBeCloseTo(once.y, 6);
+  });
+});
+
+describe("camera chasing", () => {
+  it("approaches a target without overshooting", () => {
+    const target = { x: 400, y: -200, zoom: 2 };
+    let current = { x: 0, y: 0, zoom: 1 };
+    for (let frame = 0; frame < 60; frame += 1) {
+      const next = approachViewport(current, target, 16, 78);
+      expect(next.zoom).toBeGreaterThanOrEqual(current.zoom);
+      expect(next.zoom).toBeLessThanOrEqual(target.zoom);
+      expect(next.x).toBeLessThanOrEqual(target.x);
+      current = next;
+    }
+    expect(viewportSettled(current, target)).toBe(true);
+  });
+
+  it("ends promptly at its deadline instead of creeping", () => {
+    // Exponential approaches are asymptotic: without the deadline the chase
+    // would keep issuing frames that move less than a pixel, for as long as the
+    // canvas is open.
+    const target = { x: 0, y: 0, zoom: 1.6 };
+    let current = { x: 0, y: 0, zoom: 1 };
+    let elapsed = 0;
+    let settledAt = -1;
+    while (settledAt < 0 && elapsed < 1000) {
+      const step = chaseStep(current, target, {
+        deltaMs: 10,
+        elapsedMs: elapsed,
+        timeConstantMs: ZOOM_SMOOTHING_MS,
+        maxMs: CAMERA_CHASE_MAX_MS,
+      });
+      current = step.viewport;
+      if (step.settled) settledAt = elapsed;
+      else elapsed += 10;
+    }
+    expect(settledAt).toBeGreaterThan(0);
+    expect(current).toEqual(target);
+    // It stops at its deadline, not when the asymptote happens to look good
+    // enough to the eye.
+    expect(settledAt).toBeLessThanOrEqual(CAMERA_CHASE_MAX_MS);
+  });
+
+  it("notices when something else moved the camera", () => {
+    const applied = { x: 100, y: 100, zoom: 1 };
+    expect(cameraMovedElsewhere({ ...applied }, applied)).toBe(false);
+    // A drag writes a different viewport: the animation has to stand down.
+    expect(cameraMovedElsewhere({ x: 160, y: 100, zoom: 1 }, applied)).toBe(true);
+    expect(cameraMovedElsewhere({ x: 100, y: 100, zoom: 1.4 }, applied)).toBe(true);
+    // Nothing written yet: no claim to defend.
+    expect(cameraMovedElsewhere({ x: 0, y: 0, zoom: 1 }, null)).toBe(false);
+  });
+
+  it("knows when a rectangle is already on screen", () => {
+    const view = { x: 0, y: 0, width: 1000, height: 600 };
+    expect(rectWithinView({ x: 100, y: 100, width: 200, height: 100 }, view)).toBe(true);
+    expect(rectWithinView({ x: 950, y: 100, width: 200, height: 100 }, view)).toBe(false);
+    // A margin means "not jammed against the edge".
+    expect(rectWithinView({ x: 5, y: 5, width: 200, height: 100 }, view, 24)).toBe(false);
   });
 });

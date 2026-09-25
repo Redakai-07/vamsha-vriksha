@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { Toaster } from "sonner";
 
+import { SyncProvider } from "@/components/sync/SyncProvider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { usePreferencesStore } from "@/stores/preferencesStore";
 
@@ -37,7 +38,12 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
 
   return (
     <TooltipProvider delayDuration={400} skipDelayDuration={200}>
-      {children}
+      {/*
+        Sync wraps the app rather than living inside it: it has to be able to
+        hydrate the (optional) account on any screen, and it renders nothing at
+        all when nobody is signed in.
+      */}
+      <SyncProvider>{children}</SyncProvider>
       <Toaster
         position="bottom-center"
         toastOptions={{

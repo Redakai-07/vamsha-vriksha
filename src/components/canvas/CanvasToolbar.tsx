@@ -2,8 +2,6 @@
 
 import {
   BookOpen,
-  Check,
-  CloudOff,
   Database,
   HelpingHand,
   Map as MapIcon,
@@ -13,10 +11,10 @@ import {
   Share2,
   Sparkles,
   UserRoundSearch,
-  Wifi,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { SyncStatusChip } from "@/components/sync/SyncStatusChip";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -90,20 +88,8 @@ export function CanvasToolbar({
   structureVisible,
   onToggleStructure,
 }: CanvasToolbarProps) {
-  const [online, setOnline] = useState(true);
   const [editing, setEditing] = useState(false);
   const [draftName, setDraftName] = useState(project?.name ?? "");
-
-  useEffect(() => {
-    const update = () => setOnline(navigator.onLine);
-    update();
-    window.addEventListener("online", update);
-    window.addEventListener("offline", update);
-    return () => {
-      window.removeEventListener("online", update);
-      window.removeEventListener("offline", update);
-    };
-  }, []);
 
   useEffect(() => {
     setDraftName(project?.name ?? "");
@@ -173,21 +159,12 @@ export function CanvasToolbar({
 
         <span className="flex-1" />
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="hidden items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-[11px] text-muted-foreground lg:inline-flex">
-              {online ? <Wifi className="size-3.5" /> : <CloudOff className="size-3.5" />}
-              {online ? "Online (not required)" : "Offline"}
-              <span className="text-border">·</span>
-              <Check className="size-3" />
-              Saved locally
-            </span>
-          </TooltipTrigger>
-          <TooltipContent>
-            Everything is stored in this browser&apos;s IndexedDB. Internet and sign-in are optional
-            enhancements - the app never needs them.
-          </TooltipContent>
-        </Tooltip>
+        {/**
+         * One status line, in the place the old "Saved locally" badge used to
+         * be. It says the same thing when nobody is signed in, and becomes
+         * truthful about backup when somebody is.
+         */}
+        <SyncStatusChip />
 
         <Button size="sm" onClick={onAddPerson}>
           <Plus /> <span className="hidden sm:inline">Add person</span>
@@ -271,6 +248,8 @@ export function CanvasToolbar({
             Find how two people are related: pick A and B on the canvas (press /)
           </TooltipContent>
         </Tooltip>
+
+        <SyncStatusChip />
 
         <div className="hidden items-center gap-1.5 sm:flex">
           <Tooltip>

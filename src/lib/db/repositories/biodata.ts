@@ -1,5 +1,7 @@
 import { getDb } from "@/lib/db/db";
+import { touchProjectStaged } from "@/lib/db/repositories/projects";
 import type { Biodata, BiodataField } from "@/lib/domain/types";
+import { stageDelete, stageUpsert } from "@/lib/sync/queue";
 import { createId, nowIso } from "@/lib/utils/id";
 
 export type BiodataPatch = Partial<
@@ -59,8 +61,10 @@ export const biodataRepo = {
           updatedAt: stamp,
         };
 
-    await db.biodata.put(next);
-    await db.projects.update(person.projectId, { updatedAt: stamp });
+    await db.transaction("rw", [db.biodata, db.projects, db.outbox], async () => {
+      await stageUpsert(db, "biodata", next);
+      await touchProjectStaged(db, person.projectId, stamp);
+    });
     return next;
   },
 
@@ -85,7 +89,9 @@ export const biodataRepo = {
           updatedAt: stamp,
         };
 
-    await db.biodata.put(next);
+    await db.transaction("rw", [db.biodata, db.outbox], async () => {
+      await stageUpsert(db, "biodata", next);
+    });
     return next;
   },
 
@@ -106,6 +112,11 @@ export const biodataRepo = {
   },
 
   async remove(personId: string): Promise<void> {
-    await getDb().biodata.delete(personId);
+    const db = getDb();
+    const existing = await db.biodata.get(personId);
+    if (!existing) return;
+    await db.transaction("rw", [db.biodata, db.outbox, db.syncBase], async () => {
+      await stageDelete(db, "biodata", existing);
+    });
   },
 };

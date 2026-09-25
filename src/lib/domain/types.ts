@@ -17,6 +17,46 @@ export type Id = string;
 export type IsoDateTime = string;
 
 /**
+ * How a record stands relative to the optional cloud copy.
+ *
+ *  - `local`   : the user has never signed in, so nothing is queued at all.
+ *  - `pending` : changed on this device and not yet acknowledged by the cloud.
+ *  - `synced`  : the cloud holds this exact revision.
+ *  - `conflict`: both this device and the cloud changed it; the merge kept one
+ *                value and parked the other, which is still recoverable.
+ */
+export type SyncState = "local" | "pending" | "synced" | "conflict";
+
+/**
+ * Sync bookkeeping. Optional on purpose: rows written before sync existed, and
+ * rows in exported backups, stay valid without it.
+ *
+ * `rev` is a plain counter bumped on every local write, `syncedRev` records the
+ * `rev` the cloud last acknowledged, and `cloudRev` is the provider-side
+ * revision this row descends from. Comparing `cloudRev` against the provider is
+ * what turns a blind overwrite into a compare-and-set, and keeping `syncedRev`
+ * next to `rev` is what makes "is this row dirty?" a local question.
+ */
+export interface SyncMeta {
+  rev: number;
+  syncedRev: number;
+  cloudRev: number;
+  /** Device that produced the current content; the conflict tiebreaker. */
+  origin: string;
+  state: SyncState;
+}
+
+/**
+ * Everything that can be synchronized. `deletedAt` is a tombstone rather than a
+ * row removal, so a delete can travel to other devices without racing a
+ * concurrent edit into oblivion.
+ */
+export interface SyncableEntity {
+  sync?: SyncMeta;
+  deletedAt?: IsoDateTime | null;
+}
+
+/**
  * Partial / uncertain dates are first class in genealogy: "1948", "1948-03",
  * "1948-03-12" are all valid and sort correctly as strings of differing
  * precision. `null` means unknown.
@@ -32,7 +72,7 @@ export type KinshipSystemId = "hindi" | "english" | "kannada";
 
 export const KINSHIP_SYSTEMS: readonly KinshipSystemId[] = ["kannada", "hindi", "english"];
 
-export interface Project {
+export interface Project extends SyncableEntity {
   id: Id;
   name: string;
   description?: string;
@@ -44,7 +84,7 @@ export interface Project {
   updatedAt: IsoDateTime;
 }
 
-export interface Person {
+export interface Person extends SyncableEntity {
   id: Id;
   projectId: Id;
   /** Full / formal name - the stable identifier humans see. */
@@ -78,7 +118,7 @@ export interface BiodataField {
  *  - biodata can grow (custom fields) without touching identity records,
  *  - and "no biodata exists yet" is representable (the row simply does not exist).
  */
-export interface Biodata {
+export interface Biodata extends SyncableEntity {
   /** Same id as the person it belongs to - biodata is 1:1 with a person. */
   id: Id;
   personId: Id;
@@ -116,7 +156,7 @@ export const RELATIONSHIP_TYPES: readonly RelationshipType[] = [
 
 export type SpouseStatus = "married" | "partner" | "divorced" | "widowed" | "unknown";
 
-export interface Relationship {
+export interface Relationship extends SyncableEntity {
   id: Id;
   projectId: Id;
   type: RelationshipType;
@@ -148,8 +188,14 @@ export interface Viewport {
   zoom: number;
 }
 
-/** Per-project canvas presentation state. Never the source of truth for kinship. */
-export interface CanvasState {
+/**
+ * Per-project canvas presentation state. Never the source of truth for kinship.
+ *
+ * `viewport` is deliberately DEVICE-LOCAL and is never synchronized: where one
+ * person has scrolled to is ergonomics, not genealogy, and syncing it would
+ * make two devices fight over the camera.
+ */
+export interface CanvasState extends SyncableEntity {
   /** Same id as the project. */
   id: Id;
   projectId: Id;
@@ -197,7 +243,18 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   reduceMotion: false,
 };
 
-export type MetaKey = "lastProjectId" | "installId" | "firstRunCompletedAt";
+export type MetaKey =
+  | "lastProjectId"
+  | "installId"
+  | "firstRunCompletedAt"
+  /** Stable per-device id - never leaves the device except as a tiebreaker. */
+  | "syncDeviceId"
+  /** The signed-in account (JSON), or absent when the user is anonymous. */
+  | "syncAccount"
+  /** Remote-write watermark, one row per account per collection. */
+  | `syncCursor:${string}`
+  /** Set once the first-sign-in "what about my local projects?" prompt is done. */
+  | `syncBackupChoice:${string}`;
 
 export interface MetaRow {
   key: MetaKey | string;

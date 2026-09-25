@@ -3,17 +3,78 @@ import Dexie, { type Table } from "dexie";
 import type {
   Biodata,
   CanvasState,
+  IsoDateTime,
   MetaRow,
   Person,
   Project,
   Relationship,
 } from "@/lib/domain/types";
+import type { SyncCollection } from "@/lib/sync/types";
 import { nowIso } from "@/lib/utils/id";
 
 export interface PreferenceRow {
   key: string;
   value: unknown;
   updatedAt: string;
+}
+
+/**
+ * One row per locally-changed entity waiting to reach the cloud. The queue is
+ * COALESCED: an entity has at most one row (unique compound index below),
+ * because the engine always pushes the entity's current state rather than
+ * replaying a history of edits.
+ */
+export interface OutboxRow {
+  seq?: number;
+  collection: SyncCollection;
+  entityId: string;
+  projectId: string | null;
+  op: "upsert" | "delete";
+  /** Local revision at queue time - diagnostics only. */
+  rev: number;
+  /**
+   * Provider revision this entry is based on. For a delete the row itself is
+   * already gone locally, so the base has to travel in the queue entry.
+   */
+  cloudRev: number | null;
+  queuedAt: IsoDateTime;
+  attempts: number;
+  lastError?: string;
+}
+
+/**
+ * A value that lost a merge. Nothing is ever destroyed by synchronization: the
+ * applied value lands in the entity and the other one is parked here, where the
+ * user can read it and put it back with one click.
+ */
+export interface ConflictRow {
+  id: string;
+  collection: SyncCollection;
+  entityId: string;
+  projectId: string | null;
+  field: string;
+  /** Value kept in the entity. */
+  appliedValue: unknown;
+  appliedFrom: "local" | "cloud";
+  /** Value not kept, preserved verbatim. */
+  preservedValue: unknown;
+  detectedAt: IsoDateTime;
+  resolvedAt?: IsoDateTime | null;
+}
+
+/**
+ * The last content this device and the cloud agreed on, per entity. This is the
+ * "base" of the three-way merge: without it, a device that never touched a
+ * field would still appear to have changed it.
+ */
+export interface SyncBaseRow {
+  /** `${collection}:${entityId}` */
+  key: string;
+  collection: SyncCollection;
+  entityId: string;
+  payload: string;
+  cloudRev: number;
+  updatedAt: IsoDateTime;
 }
 
 /**
@@ -39,6 +100,9 @@ export class VamshaDatabase extends Dexie {
   canvasStates!: Table<CanvasState, string>;
   preferences!: Table<PreferenceRow, string>;
   meta!: Table<MetaRow, string>;
+  outbox!: Table<OutboxRow, number>;
+  conflicts!: Table<ConflictRow, string>;
+  syncBase!: Table<SyncBaseRow, string>;
 
   constructor() {
     super("vamsha-vriksha");
@@ -90,6 +154,18 @@ export class VamshaDatabase extends Dexie {
             if (!biodata.updatedAt) biodata.updatedAt = stamp;
           });
       });
+
+    // ---- v3: optional cloud synchronization -----------------------------
+    // Purely additive: three new tables for the offline queue, preserved
+    // conflict values and the three-way-merge base. Existing rows gain sync
+    // metadata lazily (an unsynced row simply has no `sync` block, which the
+    // sync code reads as "never synchronized"). No table is dropped and no
+    // kinship data is touched.
+    this.version(3).stores({
+      outbox: "++seq, &[collection+entityId], projectId, queuedAt",
+      conflicts: "&id, [collection+entityId], projectId, detectedAt, resolvedAt",
+      syncBase: "&key, collection, updatedAt",
+    });
   }
 }
 
